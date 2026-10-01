@@ -17,9 +17,15 @@ fs.mkdirSync(TMP_DIR, { recursive: true });
 // ffmpeg: FFMPEG_PATH env > ffmpeg.exe / ffmpeg next to server.js > PATH
 function findFfmpeg() {
   if (process.env.FFMPEG_PATH) return process.env.FFMPEG_PATH;
-  for (const n of ['ffmpeg.exe', 'ffmpeg']) {
+  const names = process.platform === 'win32' ? ['ffmpeg.exe'] : ['ffmpeg'];
+  for (const n of names) {
     const p = path.join(__dirname, n);
-    if (fs.existsSync(p)) return p;
+    if (!fs.existsSync(p)) continue;
+    if (process.platform !== 'win32') {
+      try { fs.chmodSync(p, fs.statSync(p).mode | 0o100); }
+      catch (e) { console.error(`Cannot make bundled ffmpeg executable: ${e.message}`); }
+    }
+    return p;
   }
   return 'ffmpeg';
 }
