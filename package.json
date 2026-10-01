@@ -1,0 +1,10 @@
+{
+  "name": "promo-site",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Restaurant promo site: scroll-scrubbed video hero, popular row, menu. Optional admin upload with ffmpeg.",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=18" },
+  "dependencies": { "express": "^4.19.2", "multer": "^2.0.0" }
+}

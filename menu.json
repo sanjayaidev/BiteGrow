@@ -1,0 +1,210 @@
+{
+  "categories": [
+    {
+      "id": "beef",
+      "label": "Beef Meal"
+    },
+    {
+      "id": "chicken",
+      "label": "Chicken Meal"
+    },
+    {
+      "id": "shrimp",
+      "label": "Shrimp Meal"
+    },
+    {
+      "id": "tofu",
+      "label": "Tofu & Noodle"
+    },
+    {
+      "id": "soup",
+      "label": "Soup & Rice"
+    },
+    {
+      "id": "salad",
+      "label": "Salad & Appetizer"
+    }
+  ],
+  "items": [
+    {
+      "id": 1,
+      "cat": "beef",
+      "name": "Black Pepper Beef",
+      "desc": "Tender beef strips, bell peppers, onions, crushed black pepper, soy-garlic glaze",
+      "price": 11.99,
+      "cal": 780,
+      "rating": 4.6,
+      "offer": false
+    },
+    {
+      "id": 2,
+      "cat": "beef",
+      "name": "Mongolian Beef",
+      "desc": "Flank steak, scallions, garlic, ginger, sweet soy reduction, sesame seeds",
+      "price": 11.99,
+      "cal": 1020,
+      "rating": 4.9,
+      "offer": true
+    },
+    {
+      "id": 3,
+      "cat": "beef",
+      "name": "Stir Fried Beef With Chili",
+      "desc": "Sliced beef, fresh red chilies, garlic shoots, soy sauce, sesame oil",
+      "price": 11.99,
+      "cal": 850,
+      "rating": 4.4,
+      "offer": false
+    },
+    {
+      "id": 4,
+      "cat": "tofu",
+      "name": "Mandarin Tofu",
+      "desc": "Crispy tofu cubes, sweet mandarin orange sauce, green onions, sesame seeds",
+      "price": 9.99,
+      "cal": 520,
+      "rating": 4.2,
+      "offer": false
+    },
+    {
+      "id": 5,
+      "cat": "tofu",
+      "name": "Tofu With Minced Beef",
+      "desc": "Soft tofu, ground beef, chili bean paste, Sichuan pepper, garlic, scallions",
+      "price": 9.99,
+      "cal": 610,
+      "rating": 4.3,
+      "offer": false
+    },
+    {
+      "id": 6,
+      "cat": "tofu",
+      "name": "Chicken Fried Noodle",
+      "desc": "Egg noodles, shredded chicken, cabbage, carrots, bean sprouts, savory soy sauce",
+      "price": 9.99,
+      "cal": 720,
+      "rating": 4.5,
+      "offer": false
+    },
+    {
+      "id": 7,
+      "cat": "chicken",
+      "name": "Kung Pao Chicken",
+      "desc": "Diced chicken, peanuts, dried chili peppers, zucchini, Sichuan pepper glaze",
+      "price": 10.99,
+      "cal": 890,
+      "rating": 4.8,
+      "offer": true
+    },
+    {
+      "id": 8,
+      "cat": "chicken",
+      "name": "Pineapple Chicken",
+      "desc": "Crispy chicken bites, fresh pineapple chunks, bell peppers, sweet & tangy glaze",
+      "price": 10.99,
+      "cal": 760,
+      "rating": 4.5,
+      "offer": false
+    },
+    {
+      "id": 9,
+      "cat": "chicken",
+      "name": "Sweet & Sour Chicken",
+      "desc": "Batter-fried chicken, bell peppers, onions, pineapple, classic sweet & sour sauce",
+      "price": 10.99,
+      "cal": 810,
+      "rating": 4.6,
+      "offer": false
+    },
+    {
+      "id": 10,
+      "cat": "soup",
+      "name": "Wonton Soup",
+      "desc": "Pork & shrimp wontons, clear chicken broth, bok choy, green onions, sesame oil",
+      "price": 8.99,
+      "cal": 340,
+      "rating": 4.3,
+      "offer": false
+    },
+    {
+      "id": 11,
+      "cat": "soup",
+      "name": "Vegetable Fried Rice",
+      "desc": "Jasmine rice, carrots, green peas, corn, spring onions, light soy sauce",
+      "price": 8.99,
+      "cal": 610,
+      "rating": 4.1,
+      "offer": false
+    },
+    {
+      "id": 12,
+      "cat": "soup",
+      "name": "Egg Fried Rice",
+      "desc": "Wok-fried jasmine rice, scrambled eggs, scallions, butter, light soy sauce",
+      "price": 8.99,
+      "cal": 640,
+      "rating": 4.2,
+      "offer": false
+    },
+    {
+      "id": 13,
+      "cat": "shrimp",
+      "name": "Shrimp With Garlic Sauce",
+      "desc": "Succulent shrimp, minced garlic, wood ear mushrooms, water chestnuts, sweet chili glaze",
+      "price": 12.99,
+      "cal": 680,
+      "rating": 4.5,
+      "offer": false
+    },
+    {
+      "id": 14,
+      "cat": "shrimp",
+      "name": "Sweet & Sour Shrimp",
+      "desc": "Tempura shrimp, pineapple, bell peppers, onions, tangy sweet & sour sauce",
+      "price": 12.99,
+      "cal": 700,
+      "rating": 4.4,
+      "offer": false
+    },
+    {
+      "id": 15,
+      "cat": "shrimp",
+      "name": "New Style Shrimp Spicy",
+      "desc": "Jumbo shrimp, chili oil, garlic, scallions, spicy chili paste, cilantro",
+      "price": 12.99,
+      "cal": 730,
+      "rating": 4.7,
+      "offer": true
+    },
+    {
+      "id": 16,
+      "cat": "salad",
+      "name": "Spring Roll",
+      "desc": "Crispy pastry shell, shredded cabbage, carrots, glass noodles, sweet chili dipping sauce",
+      "price": 7.99,
+      "cal": 310,
+      "rating": 4.3,
+      "offer": false
+    },
+    {
+      "id": 17,
+      "cat": "salad",
+      "name": "Thai Chicken Salad",
+      "desc": "Grilled chicken, shredded cabbage, carrots, cilantro, crushed peanuts, thai peanut dressing",
+      "price": 7.99,
+      "cal": 420,
+      "rating": 4.4,
+      "offer": false
+    },
+    {
+      "id": 18,
+      "cat": "salad",
+      "name": "Green Salad",
+      "desc": "Fresh mixed greens, cucumbers, cherry tomatoes, carrots, house sesame vinaigrette",
+      "price": 7.99,
+      "cal": 180,
+      "rating": 4.0,
+      "offer": false
+    }
+  ]
+}
