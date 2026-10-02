@@ -28,7 +28,7 @@ slots.forEach(([id,t,h])=>{
     try{
       const r=await fetch('/api/upload/'+id,{method:'POST',body:fd});const j=await r.json();
       if(!r.ok)throw new Error((j.error||'Failed')+(j.detail?'\n'+j.detail:''));
-      msg.className='msg ok';msg.textContent='Done. Refresh the site (Ctrl+F5) to see it.';
+      msg.className='msg ok';msg.textContent='Done. Refresh the site to see it (only this clip is downloaded again).';
       document.getElementById('i-'+id).src='/videos/'+id+'.jpg?'+j.v;
     }catch(e){msg.className='msg bad';msg.textContent=e.message}
     btn.disabled=false;

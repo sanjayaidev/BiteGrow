@@ -41,11 +41,21 @@ function auth(req, res, next) {
 
 const app = express();
 
+// Video URLs carry a version (file mtime). Videos are cached "forever" by the browser, and
+// replacing a clip changes its version, so only that clip is fetched again.
+function videoManifest() {
+  const ver = f => { try { return Math.floor(fs.statSync(path.join(VIDEOS_DIR, f)).mtimeMs); } catch (e) { return 0; } };
+  const out = {};
+  for (const s of SLOTS) out[s] = { src: `videos/${s}.mp4?v=${ver(s + '.mp4')}`, poster: `videos/${s}.jpg?v=${ver(s + '.jpg')}` };
+  return out;
+}
+
 // Menu comes from menu.json; edit it and refresh. Served as a script so the page needs no async loading.
 app.get('/menu-data.js', (req, res) => {
   let menu = { categories: [], items: [] };
   try { menu = JSON.parse(fs.readFileSync(path.join(__dirname, 'menu.json'), 'utf8')); } catch (e) { console.error('menu.json:', e.message); }
-  res.type('text/javascript').set('Cache-Control', 'no-cache').send(`window.MENU = ${JSON.stringify(menu)};`);
+  res.type('text/javascript').set('Cache-Control', 'no-cache')
+    .send(`window.MENU = ${JSON.stringify(menu)};\nwindow.VIDEOS = ${JSON.stringify(videoManifest())};`);
 });
 app.get('/api/menu', (req, res) => res.sendFile(path.join(__dirname, 'menu.json')));
 
@@ -54,7 +64,7 @@ app.get(['/admin', '/admin.html'], auth, (req, res) => res.sendFile(path.join(PU
 // express.static handles HTTP Range requests, which video seeking needs.
 app.use(express.static(PUBLIC_DIR, {
   index: 'index.html',
-  setHeaders: (res, file) => { if (file.startsWith(VIDEOS_DIR)) res.set('Cache-Control', 'no-cache'); }
+  setHeaders: (res, file) => { if (file.startsWith(VIDEOS_DIR)) res.set('Cache-Control', 'public, max-age=31536000, immutable'); }
 }));
 
 const upload = multer({

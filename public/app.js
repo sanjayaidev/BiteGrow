@@ -10,11 +10,43 @@ const byId = id => items.find(i => i.id === id);
 const img = i => i.id === 1 ? 'img/beef.png' : 'img/food.png';
 const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-/* ================= HERO: seekable video via horizontal swipe/wheel ================= */
+/* ================= VIDEO SOURCES =================
+   URLs come from the server with a version (?v=mtime). The browser caches videos for a year, and a
+   replaced clip gets a new version, so only that clip is downloaded again. */
+const VIDS = window.VIDEOS || {};
+const vSrc = k => (VIDS[k] && VIDS[k].src) || `videos/${k}.mp4`;
+const vPoster = k => (VIDS[k] && VIDS[k].poster) || `videos/${k}.jpg`;
+
+/* Horizontal drag for touch AND mouse. Vertical movement is never captured, so the page always scrolls. */
+function dragScrub(el, { canStart, start, move, flag = el }) {
+  let id = null, x0 = 0, y0 = 0, base = 0, locked = false;
+  el.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    delete flag.dataset.drag;
+    if (canStart && !canStart()) return;
+    id = e.pointerId; x0 = e.clientX; y0 = e.clientY; base = start(); locked = false;
+  });
+  el.addEventListener('pointermove', e => {
+    if (e.pointerId !== id) return;
+    const dx = e.clientX - x0, dy = e.clientY - y0;
+    if (!locked) {
+      if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+      if (Math.abs(dy) > Math.abs(dx)) { id = null; return; } // vertical gesture: leave it to the page scroll
+      locked = true; flag.dataset.drag = '1'; el.classList.add('dragging');
+      try { el.setPointerCapture(e.pointerId); } catch (_) {}
+    }
+    move(base, dx);
+  });
+  const end = e => { if (e.pointerId !== id) return; id = null; locked = false; el.classList.remove('dragging'); };
+  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(ev => el.addEventListener(ev, end));
+}
+
+/* ================= HERO: video scrubs with mouse wheel (PC) or left/right drag (mobile) =================
+   The page is never locked. Until the hero video is fully loaded, everything scrolls normally. */
 const hero = $('#hero'), stage = $('.hero-stage'), vid = $('#heroVideo');
 const slides = [...hero.querySelectorAll('.slide')].map(el => ({ el, s: +el.dataset.start, e: +el.dataset.end }));
 const FADE = 0.05, EASE = reduce ? 1 : 0.16;
-let target = 0, cur = 0, lastT = -1, ready = false, raf = 0;
+let target = 0, cur = 0, lastT = -1, ready = false, raf = 0, holdUntil = 0;
 
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 scrollTo(0, 0);
@@ -47,40 +79,40 @@ function tick() {
   if (cur !== target) raf = requestAnimationFrame(tick);
 }
 
-// Mobile: Horizontal swipe scrubs hero video
-let heroTouchStartX = 0, heroTouchStartY = 0, heroStartProgress = 0;
-hero.addEventListener('touchstart', (e) => {
-  heroTouchStartX = e.touches[0].clientX;
-  heroTouchStartY = e.touches[0].clientY;
-  heroStartProgress = target;
-}, { passive: true });
+function heroTo(p) {
+  target = clamp(p, 0, 1);
+  hero.classList.add('used');
+  if (!raf) raf = requestAnimationFrame(tick);
+}
 
-hero.addEventListener('touchmove', (e) => {
-  const dx = e.touches[0].clientX - heroTouchStartX;
-  const dy = e.touches[0].clientY - heroTouchStartY;
-  if (Math.abs(dx) > Math.abs(dy)) {
-    e.preventDefault(); // Prevent vertical page scroll if strictly horizontal
-    const progressDelta = -dx / window.innerWidth;
-    target = clamp(heroStartProgress + progressDelta, 0, 1);
-    if (!raf) raf = requestAnimationFrame(tick);
-  }
-}, { passive: false });
+// Mobile (and mouse drag): horizontal drag scrubs. Vertical swipes scroll the page as usual.
+dragScrub(stage, {
+  canStart: () => ready,
+  start: () => target,
+  move: (base, dx) => heroTo(base - dx / innerWidth)
+});
 
-// PC: Horizontal wheel or Shift+Wheel scrubs hero video
-hero.addEventListener('wheel', (e) => {
-  if (Math.abs(e.deltaX) > Math.abs(e.deltaY) || e.shiftKey) {
-    const delta = e.deltaX || e.deltaY;
-    const progressDelta = -(delta / 1000) * 0.5;
-    target = clamp(target + progressDelta, 0, 1);
-    if (!raf) raf = requestAnimationFrame(tick);
-    e.preventDefault();
-  }
+// PC: mouse wheel scrubs while the page is at the top. At either end of the video the wheel
+// goes back to scrolling the page, so you can never get stuck.
+addEventListener('wheel', e => {
+  if (!ready || e.ctrlKey || scrollY > 2 || document.querySelector('.sheet.open')) return;
+  let d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+  if (!d) return;
+  if (e.deltaMode === 1) d *= 33; else if (e.deltaMode === 2) d *= innerHeight;
+  const now = performance.now();
+  if (now < holdUntil) { e.preventDefault(); return; }          // absorb trackpad inertia right after reaching an end
+  if ((d > 0 && target >= 1) || (d < 0 && target <= 0)) return; // at an end: let the page scroll
+  e.preventDefault();
+  const np = clamp(target + d / 2500, 0, 1);
+  if (np === 1 || np === 0) holdUntil = now + 350;
+  heroTo(np);
 }, { passive: false });
 
 function unlock() {
   if (ready) return; ready = true;
-  hero.classList.add('ready'); document.body.classList.remove('is-locked');
+  hero.classList.add('ready');
   target = cur = 0; seek(cur); setSlides(cur);
+  scheduleLive(); // hero is done, popular videos may now load
 }
 
 function meter() {
@@ -95,62 +127,103 @@ vid.addEventListener('progress', meter);
 vid.addEventListener('loadeddata', meter);
 vid.addEventListener('canplaythrough', unlock);
 setTimeout(unlock, 8000);
-vid.load();
+vid.poster = vPoster('hero');
+vid.src = vSrc('hero');
 setSlides(0);
 
-const kick = () => [vid, ...document.querySelectorAll('.pop video')].forEach(v => v.play().then(() => v.pause()).catch(() => {}));
+// iOS only renders seeked frames after a video has played once; do that on the first gesture.
+const kick = () => [vid, ...cards.filter(c => c.live).map(c => c.video)].forEach(v => v.play().then(() => v.pause()).catch(() => {}));
 ['touchstart', 'pointerdown', 'wheel'].forEach(ev => addEventListener(ev, kick, { once: true, passive: true }));
 
-/* ================= POPULAR: 2 col, 3 row, independent video scroll ================= */
+/* ================= POPULAR: 1 column x 6 rows, max 3 videos loaded at once ================= */
 const popItems = [...items].sort((a, b) => b.rating - a.rating).slice(0, 6);
 const row = $('#popRow');
+const MAX_LIVE = 3;
+const word = matchMedia('(pointer: coarse)').matches ? 'Swipe' : 'Drag';
 row.innerHTML = popItems.map((it, i) => `
-  <div class="pop" data-id="${it.id}">
+  <div class="pop" data-id="${it.id}" data-slot="pop${i % 3 + 1}">
     <div class="vid">
-      <video src="videos/pop${i % 3 + 1}.mp4" poster="videos/pop${i % 3 + 1}.jpg" muted playsinline preload="auto" aria-hidden="true"></video>
+      <video poster="${vPoster('pop' + (i % 3 + 1))}" muted playsinline preload="none" aria-hidden="true"></video>
+      <div class="hint"><i>‹</i><span>${word}</span><i>›</i></div>
+      <div class="scrub"><b></b></div>
     </div>
     <p class="nm">${esc(it.name)}</p>
     <p class="pr">${money(it.price)}</p>
   </div>
 `).join('');
 
-// Setup independent controls for each popular video card
-const popCards = row.querySelectorAll('.pop');
-popCards.forEach(card => {
-  const video = card.querySelector('video');
-  video.pause();
+const hintsOff = () => document.body.classList.add('hints-off');
 
-  // PC: Hover scroll (wheel) scrubs individual video
-  card.addEventListener('wheel', (e) => {
+const cards = [...row.querySelectorAll('.pop')].map(el => {
+  const video = el.querySelector('video'), box = el.querySelector('.vid'), bar = el.querySelector('.scrub b');
+  const c = { el, video, bar, slot: el.dataset.slot, pos: 0, live: false };
+  const setBar = () => { bar.style.transform = `scaleX(${video.duration ? video.currentTime / video.duration : 0})`; };
+  video.addEventListener('timeupdate', setBar);
+  video.addEventListener('seeked', setBar);
+  // coming back into range: resume where the visitor left it (file is served from the browser cache)
+  video.addEventListener('loadedmetadata', () => { if (c.pos) video.currentTime = c.pos * (video.duration - 0.04); });
+  video.addEventListener('loadeddata', () => {
+    const t = video.currentTime;
+    video.play().then(() => { video.pause(); if (c.live) video.currentTime = t; }).catch(() => {});
+  });
+
+  const scrubTo = p => {
     if (!video.duration) return;
-    const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
-    const scrubAmount = -(delta / 100) * video.duration * 0.05;
-    video.currentTime = clamp(video.currentTime + scrubAmount, 0, video.duration - 0.04);
-    e.preventDefault(); // Prevents page scroll when hovering directly over the video
+    c.pos = clamp(p, 0, 1);
+    video.currentTime = c.pos * (video.duration - 0.04);
+    setBar(); hintsOff();
+  };
+
+  dragScrub(box, {
+    flag: el,
+    canStart: () => c.live && video.duration > 0,
+    start: () => video.currentTime / video.duration,
+    move: (base, dx) => scrubTo(base - dx / box.clientWidth)
+  });
+
+  // Trackpad two-finger swipe / Shift+wheel scrubs. A plain vertical wheel keeps scrolling the page.
+  box.addEventListener('wheel', e => {
+    if (!c.live || !video.duration || Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+    e.preventDefault();
+    scrubTo(video.currentTime / video.duration + e.deltaX / 600);
   }, { passive: false });
 
-  // Mobile: Left/right swipe scrubs individual video
-  let touchStartX = 0, touchStartY = 0, touchStartTime = 0;
-  card.addEventListener('touchstart', (e) => {
-    touchStartX = e.touches[0].clientX;
-    touchStartY = e.touches[0].clientY;
-    touchStartTime = video.currentTime;
-  }, { passive: true });
-
-  card.addEventListener('touchmove', (e) => {
-    if (!video.duration) return;
-    const dx = e.touches[0].clientX - touchStartX;
-    const dy = e.touches[0].clientY - touchStartY;
-    if (Math.abs(dx) > Math.abs(dy)) {
-      e.preventDefault(); // Prevents vertical page scroll if swiping horizontally on the video
-      const progress = -dx / card.clientWidth;
-      video.currentTime = clamp(touchStartTime + progress * video.duration, 0, video.duration - 0.04);
-    }
-    // If vertical (dy > dx), we do nothing, allowing the browser to naturally scroll the page
-  }, { passive: false });
+  return c;
 });
 
-row.addEventListener('click', e => { const p = e.target.closest('.pop'); if (p) openItem(+p.dataset.id); });
+function setLive(c, on) {
+  if (c.live === on) return;
+  c.live = on;
+  const v = c.video;
+  if (on) { v.preload = 'auto'; v.src = vSrc(c.slot); }
+  else {
+    v.pause(); v.removeAttribute('src'); v.load(); // free the decoder and memory; poster shows again
+    c.bar.style.transform = 'scaleX(0)';
+  }
+}
+
+// Keep only the (up to) 3 cards closest to the middle of the screen loaded.
+let liveRaf = 0;
+function scheduleLive() { if (!liveRaf) liveRaf = requestAnimationFrame(refreshLive); }
+function refreshLive() {
+  liveRaf = 0;
+  if (!ready && scrollY < 40) return; // the hero gets the bandwidth first
+  const vh = innerHeight, mid = vh / 2;
+  const want = cards
+    .map(c => { const r = c.el.getBoundingClientRect(); return { c, d: Math.abs((r.top + r.bottom) / 2 - mid), near: r.bottom > -vh * .5 && r.top < vh * 1.5 }; })
+    .filter(x => x.near).sort((a, b) => a.d - b.d).slice(0, MAX_LIVE).map(x => x.c);
+  cards.forEach(c => { if (!want.includes(c)) setLive(c, false); }); // release first so we never exceed the cap
+  want.forEach(c => setLive(c, true));
+}
+addEventListener('scroll', scheduleLive, { passive: true });
+addEventListener('resize', scheduleLive);
+scheduleLive();
+
+row.addEventListener('click', e => {
+  const p = e.target.closest('.pop');
+  if (!p || p.dataset.drag) return; // a drag is not a tap
+  openItem(+p.dataset.id);
+});
 
 /* ================= MENU ================= */
 let activeCat = 'all';

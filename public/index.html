@@ -9,14 +9,14 @@
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="app.css">
 </head>
-<body class="is-locked">
+<body>
 <div class="app">
   <header class="topbar"><span class="brand">RED HOUSE</span><span class="tag">Demo</span></header>
 
   <!-- HERO: pinned, video scrubs with scroll, text changes -->
   <section class="hero" id="hero" aria-label="Introduction">
     <div class="hero-stage">
-      <video id="heroVideo" class="hero-video" src="videos/hero.mp4" poster="videos/hero.jpg" muted playsinline preload="auto" aria-hidden="true"></video>
+      <video id="heroVideo" class="hero-video" muted playsinline preload="auto" aria-hidden="true"></video>
       <div class="hero-scrim"></div>
       <div class="hero-copy">
         <div class="slide" data-start="0" data-end="0.2"><h1>Fire. Wok. Flavour.</h1><p>Chinese kitchen classics, made to order.</p></div>
@@ -25,13 +25,13 @@
         <div class="slide" data-start="0.8" data-end="1"><h2>Taste the menu</h2><a class="cta" href="#menu">Explore menu</a></div>
       </div>
       <div class="hero-meter" id="meter"><span id="meterLabel">Loading 0%</span><span class="bar"><i id="meterFill"></i></span></div>
-      <div class="hero-cue" id="cue">Scroll ↓</div>
+      <div class="hero-cue" id="cue"><span class="cue-touch"><i>‹</i> Drag <i>›</i></span><span class="cue-mouse">Scroll ↓</span></div>
     </div>
   </section>
 
   <!-- POPULAR -->
   <section class="section" id="popular">
-    <div class="sec-head"><h2>Popular</h2><span class="sub">Scroll &amp; swipe</span></div>
+    <div class="sec-head"><h2>Popular</h2><span class="sub">Drag left / right</span></div>
     <div class="pop-row" id="popRow"></div>
     <div class="dots" id="popDots"></div>
   </section>
