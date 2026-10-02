@@ -26,5 +26,8 @@ PowerShell example: `$env:ADMIN_PASSWORD="secret"; npm start`
 - Popular cards: drag left/right (touch or mouse), or trackpad swipe / Shift+wheel, to scrub. A plain vertical wheel scrolls the page. A hint with arrows shows until the first drag.
 - Only 3 Popular videos are loaded at a time (the ones nearest the middle of the screen); the rest show their poster. They start loading after the hero has finished.
 
+## Speed control
+The **Speed** slider (1-10) in the top bar sets how fast videos move when you drag or scroll: one full-width drag covers `speed x 12%` of a video (4 = 48%), and the mouse wheel / trackpad step scales with it. The choice is remembered on the device (`localStorage`). Scrubbing is eased, so videos glide to where you steer them instead of jumping.
+
 ## Caching
 Video URLs carry a version (`?v=<file mtime>`, injected via `/menu-data.js`) and are served with `Cache-Control: public, max-age=31536000, immutable`. Browsers keep them and don't re-request; uploading a new clip changes only that clip's version, so only it is downloaded again.

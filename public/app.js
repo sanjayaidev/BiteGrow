@@ -10,6 +10,21 @@ const byId = id => items.find(i => i.id === id);
 const img = i => i.id === 1 ? 'img/beef.png' : 'img/food.png';
 const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+/* ================= SPEED CONTROL (1-10, remembered on this device) =================
+   Drag: how much of a video one full-width drag covers (speed 4 = 48%, 10 = 120%).
+   Wheel / trackpad: scales the step per notch (speed 4 = normal). */
+let speedUI = 4;
+try { const v = parseInt(localStorage.getItem('scrubSpeedUI'), 10); if (v >= 1 && v <= 10) speedUI = v; } catch (_) {}
+const speedInput = $('#speed'), speedVal = $('#speedval');
+speedInput.value = speedUI; speedVal.textContent = speedUI;
+speedInput.addEventListener('input', () => {
+  speedUI = parseInt(speedInput.value, 10) || 4;
+  speedVal.textContent = speedUI;
+  try { localStorage.setItem('scrubSpeedUI', speedUI); } catch (_) {}
+});
+const dragGain = () => speedUI * 0.12;
+const wheelMul = () => speedUI / 4;
+
 /* ================= VIDEO SOURCES =================
    URLs come from the server with a version (?v=mtime). The browser caches videos for a year, and a
    replaced clip gets a new version, so only that clip is downloaded again. */
@@ -63,20 +78,25 @@ function setSlides(p) {
   });
 }
 
+// Returns true once the video has been asked for this position. If a previous seek is still in
+// flight it returns false, and tick() keeps running until the final position is really requested
+// (otherwise a fast swipe could end on a stale frame).
 function seek(p) {
-  if (!vid.duration) return;
+  if (!vid.duration) return true;
   const t = clamp(p, 0, 1) * (vid.duration - 0.04);
-  if (Math.abs(t - lastT) < 0.008 || vid.seeking) return;
+  if (Math.abs(t - lastT) < 0.008) return true;
+  if (vid.seeking) return false;
   lastT = t;
   vid.fastSeek ? vid.fastSeek(t) : (vid.currentTime = t);
+  return true;
 }
 
 function tick() {
   raf = 0;
   cur += (target - cur) * EASE;
   if (Math.abs(target - cur) < 0.0004) cur = target;
-  seek(cur); setSlides(cur);
-  if (cur !== target) raf = requestAnimationFrame(tick);
+  const settled = seek(cur); setSlides(cur);
+  if (cur !== target || !settled) raf = requestAnimationFrame(tick);
 }
 
 function heroTo(p) {
@@ -89,7 +109,7 @@ function heroTo(p) {
 dragScrub(stage, {
   canStart: () => ready,
   start: () => target,
-  move: (base, dx) => heroTo(base - dx / innerWidth)
+  move: (base, dx) => heroTo(base - dx / innerWidth * dragGain())
 });
 
 // PC: mouse wheel scrubs while the page is at the top. At either end of the video the wheel
@@ -103,7 +123,7 @@ addEventListener('wheel', e => {
   if (now < holdUntil) { e.preventDefault(); return; }          // absorb trackpad inertia right after reaching an end
   if ((d > 0 && target >= 1) || (d < 0 && target <= 0)) return; // at an end: let the page scroll
   e.preventDefault();
-  const np = clamp(target + d / 2500, 0, 1);
+  const np = clamp(target + d / 2500 * wheelMul(), 0, 1);
   if (np === 1 || np === 0) holdUntil = now + 350;
   heroTo(np);
 }, { passive: false });
@@ -156,36 +176,58 @@ const hintsOff = () => document.body.classList.add('hints-off');
 
 const cards = [...row.querySelectorAll('.pop')].map(el => {
   const video = el.querySelector('video'), box = el.querySelector('.vid'), bar = el.querySelector('.scrub b');
-  const c = { el, video, bar, slot: el.dataset.slot, pos: 0, live: false };
-  const setBar = () => { bar.style.transform = `scaleX(${video.duration ? video.currentTime / video.duration : 0})`; };
-  video.addEventListener('timeupdate', setBar);
-  video.addEventListener('seeked', setBar);
-  // coming back into range: resume where the visitor left it (file is served from the browser cache)
-  video.addEventListener('loadedmetadata', () => { if (c.pos) video.currentTime = c.pos * (video.duration - 0.04); });
+  // pos = where the visitor left it (kept while unloaded), target = where they are steering,
+  // cur = eased value actually shown. The video chases cur, so it glides instead of jumping.
+  const c = { el, video, bar, slot: el.dataset.slot, pos: 0, target: 0, cur: 0, lastT: -1, raf: 0, live: false };
+  const dur = () => video.duration || 0;
+  const setBar = () => { bar.style.transform = `scaleX(${c.cur})`; };
+
+  function tick() {
+    c.raf = 0;
+    c.cur += (c.target - c.cur) * EASE;
+    if (Math.abs(c.target - c.cur) < 0.0004) c.cur = c.target;
+    setBar();
+    let settled = true;
+    if (dur()) {
+      const t = c.cur * (dur() - 0.04);
+      if (Math.abs(t - c.lastT) >= 0.008) {
+        if (video.seeking) settled = false;            // previous seek still running: try again next frame
+        else { c.lastT = t; video.currentTime = t; }
+      }
+    }
+    if (c.cur !== c.target || !settled) c.raf = requestAnimationFrame(tick);
+  }
+  c.kick = () => { if (!c.raf) c.raf = requestAnimationFrame(tick); };
+
+  // (re)loaded: go back to where the visitor left it
+  video.addEventListener('loadedmetadata', () => {
+    c.cur = c.target = c.pos; c.lastT = -1; setBar();
+    if (c.pos) c.kick();
+  });
+  // iOS needs one play/pause before seeked frames render. Afterwards, re-seek to the CURRENT
+  // position (not the one from when loading finished, which would snap the video back).
   video.addEventListener('loadeddata', () => {
-    const t = video.currentTime;
-    video.play().then(() => { video.pause(); if (c.live) video.currentTime = t; }).catch(() => {});
+    video.play().then(() => { video.pause(); if (c.live) { c.lastT = -1; c.kick(); } }).catch(() => {});
   });
 
-  const scrubTo = p => {
-    if (!video.duration) return;
-    c.pos = clamp(p, 0, 1);
-    video.currentTime = c.pos * (video.duration - 0.04);
-    setBar(); hintsOff();
+  const goTo = p => {
+    if (!dur()) return;
+    c.target = clamp(p, 0, 1); c.pos = c.target;
+    hintsOff(); c.kick();
   };
 
   dragScrub(box, {
     flag: el,
-    canStart: () => c.live && video.duration > 0,
-    start: () => video.currentTime / video.duration,
-    move: (base, dx) => scrubTo(base - dx / box.clientWidth)
+    canStart: () => c.live && dur() > 0,
+    start: () => c.target,
+    move: (base, dx) => goTo(base - dx / box.clientWidth * dragGain())
   });
 
   // Trackpad two-finger swipe / Shift+wheel scrubs. A plain vertical wheel keeps scrolling the page.
   box.addEventListener('wheel', e => {
-    if (!c.live || !video.duration || Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+    if (!c.live || !dur() || Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
     e.preventDefault();
-    scrubTo(video.currentTime / video.duration + e.deltaX / 600);
+    goTo(c.target + e.deltaX / 600 * wheelMul());
   }, { passive: false });
 
   return c;
@@ -197,6 +239,7 @@ function setLive(c, on) {
   const v = c.video;
   if (on) { v.preload = 'auto'; v.src = vSrc(c.slot); }
   else {
+    cancelAnimationFrame(c.raf); c.raf = 0; c.lastT = -1;
     v.pause(); v.removeAttribute('src'); v.load(); // free the decoder and memory; poster shows again
     c.bar.style.transform = 'scaleX(0)';
   }

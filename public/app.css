@@ -7,6 +7,9 @@ body{margin:0;background:#070606;color:var(--text);font-family:'Poppins',system-
 .app{max-width:480px;margin:0 auto;background:var(--bg);min-height:100vh;position:relative;box-shadow:0 0 0 1px var(--line);padding-bottom:calc(var(--tabs) + env(safe-area-inset-bottom,0px))}
 .topbar{position:sticky;top:0;z-index:20;height:var(--top);background:#000;display:flex;align-items:center;justify-content:space-between;padding:0 16px}
 .brand{color:var(--gold);font-weight:700;letter-spacing:.14em;font-size:15px}
+.speed{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);white-space:nowrap}
+.speed input{width:84px;height:28px;margin:0;accent-color:var(--gold);touch-action:pan-x}
+.speed b{color:var(--text);min-width:1.4em;text-align:center}
 .tag{font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:3px 10px}
 
 /* hero: 1 screen height, horizontal swipe/wheel scrubs video */
