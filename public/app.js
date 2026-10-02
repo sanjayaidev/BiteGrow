@@ -62,6 +62,8 @@ const hero = $('#hero'), stage = $('.hero-stage'), vid = $('#heroVideo');
 const slides = [...hero.querySelectorAll('.slide')].map(el => ({ el, s: +el.dataset.start, e: +el.dataset.end }));
 const FADE = 0.05, EASE = reduce ? 1 : 0.16;
 let target = 0, cur = 0, lastT = -1, ready = false, raf = 0, holdUntil = 0;
+const HERO_BOOST = 2;            // hero drag / wheel is this many times faster than the Speed slider alone
+let autoPauseUntil = 0, lastAuto = 0;
 
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 scrollTo(0, 0);
@@ -109,7 +111,7 @@ function heroTo(p) {
 dragScrub(stage, {
   canStart: () => ready,
   start: () => target,
-  move: (base, dx) => heroTo(base - dx / innerWidth * dragGain())
+  move: (base, dx) => heroTo(base - dx / innerWidth * dragGain() * HERO_BOOST)
 });
 
 // PC: mouse wheel scrubs while the page is at the top. At either end of the video the wheel
@@ -123,10 +125,30 @@ addEventListener('wheel', e => {
   if (now < holdUntil) { e.preventDefault(); return; }          // absorb trackpad inertia right after reaching an end
   if ((d > 0 && target >= 1) || (d < 0 && target <= 0)) return; // at an end: let the page scroll
   e.preventDefault();
-  const np = clamp(target + d / 2500 * wheelMul(), 0, 1);
+  autoPauseUntil = now + 2500;
+  const np = clamp(target + d / 2500 * wheelMul() * HERO_BOOST, 0, 1);
   if (np === 1 || np === 0) holdUntil = now + 350;
   heroTo(np);
 }, { passive: false });
+
+// Auto-play: once loaded, the hero advances by itself. At Speed 4 it plays at normal video speed
+// (the Speed slider scales it). It pauses while the visitor touches / drags / wheels the hero,
+// resumes after 2.5 s idle, loops back to the start at the end, and never runs for reduced-motion users.
+stage.addEventListener('pointerdown', () => { autoPauseUntil = Infinity; });
+['pointerup', 'pointercancel'].forEach(ev => stage.addEventListener(ev, () => { autoPauseUntil = performance.now() + 2500; }));
+
+function autoStep(ts) {
+  requestAnimationFrame(autoStep);
+  const dt = lastAuto ? Math.min((ts - lastAuto) / 1000, 0.1) : 0;
+  lastAuto = ts;
+  if (reduce || !ready || !vid.duration) return;
+  if (scrollY > 2 || document.hidden || ts < autoPauseUntil || document.querySelector('.sheet.open')) return;
+  let next = target + dt / vid.duration * (speedUI / 4);
+  if (next >= 1) { next = 0; cur = 0; lastT = -1; } // loop: jump back to the first frame
+  target = next;
+  if (!raf) raf = requestAnimationFrame(tick);
+}
+requestAnimationFrame(autoStep);
 
 function unlock() {
   if (ready) return; ready = true;
