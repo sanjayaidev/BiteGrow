@@ -1,10 +1,23 @@
 {
-  "name": "promo-site",
+  "name": "bitegrow",
   "version": "1.0.0",
   "private": true,
-  "description": "Restaurant promo site: scroll-scrubbed video hero, popular row, menu. Optional admin upload with ffmpeg.",
+  "description": "Multi-tenant restaurant site: scroll-scrubbed video hero, menu, accounts, dine-in/pickup/delivery ordering.",
   "main": "server.js",
-  "scripts": { "start": "node server.js" },
-  "engines": { "node": ">=18" },
-  "dependencies": { "express": "^4.19.2", "multer": "^2.0.0" }
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.4",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.4.0",
+    "helmet": "^7.1.0",
+    "multer": "^2.0.0"
+  }
 }
