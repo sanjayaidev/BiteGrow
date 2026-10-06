@@ -181,7 +181,7 @@ const kick = () => [vid, ...cards.filter(c => c.live).map(c => c.video)].forEach
 ['touchstart', 'pointerdown', 'wheel'].forEach(ev => addEventListener(ev, kick, { once: true, passive: true }));
 
 /* ================= POPULAR: 1 column x 6 rows, max 3 videos loaded at once ================= */
-const popItems = [...items].sort((a, b) => b.rating - a.rating).slice(0, 6);
+const popItems = [...items].sort((a, b) => b.rating - a.rating).slice(0, 3);
 const row = $('#popRow');
 const MAX_LIVE = 3;
 const word = matchMedia('(pointer: coarse)').matches ? 'Swipe' : 'Drag';
@@ -308,7 +308,7 @@ function renderList() {
   $('#list').innerHTML = items.filter(i => activeCat === 'all' || i.cat === activeCat).map(i => {
     const p = money(i.price), food = esc(i.png || img(i));   // layer 3 falls back to the normal photo
     return `<article class="row" data-id="${i.id}">
-      ${i.bg ? `<img class="bg" src="${esc(i.bg)}" alt="" loading="lazy">` : ''}
+      ${(i.bg || CFG.cardBg) ? `<img class="bg" src="${esc(i.bg || CFG.cardBg)}" alt="" loading="lazy" decoding="async">` : ''}
       <div class="card">${corner('tl')}${corner('tr')}${corner('bl')}${corner('br')}
         <svg class="flourish" viewBox="0 0 120 24" aria-hidden="true"><use href="#rh-flourish"/></svg>
         <h3 class="name">${esc(i.name)}</h3><p class="price">${p}</p>
@@ -316,7 +316,7 @@ function renderList() {
       ${i.offer ? '<span class="offer">OFFER</span>' : ''}
       <div class="food"><img src="${food}" alt="" loading="lazy" decoding="async"></div>
       <button class="open" type="button" aria-label="${esc(i.name)}"></button>
-      <button class="add" type="button"><span>Add</span><b>${p}</b></button>
+      <button class="add" type="button">Add to cart</button>
     </article>`;
   }).join('');
 }

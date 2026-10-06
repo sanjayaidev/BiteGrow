@@ -1,10 +1,11 @@
 {
   "brand": "RED HOUSE",
-  "pageTitle": "Red House — Demo",
+  "pageTitle": "Red House \u2014 Demo",
   "currency": "$",
   "whatsappNumber": "",
   "features": {
     "ar3d": true,
     "whatsappOrder": true
-  }
+  },
+  "cardBg": "img/wood.jpg"
 }
