@@ -1,178 +1,66 @@
 'use strict';
-// Customer accounts: register, login, token refresh, profile, order history, password reset.
+// Who is calling, and what may they do in THIS restaurant.
 //
-// Accounts are global (one login works on every restaurant); order history is
-// per restaurant, so a customer only sees their orders from req.tenant.
+// Customer accounts are global (Supabase Auth + bg_profiles): one login works on
+// every restaurant. Staff roles are per tenant (bg_tenant_members), plus an
+// optional platform-wide super admin flag on the profile. A person can be a
+// customer at one restaurant and owner of another.
 //
-// Env: SUPABASE_ANON_KEY is used to check passwords on a throwaway client. If it
-// is not set, the service key is used on that same throwaway client, which works
-// too. Password reset emails link back to the host the customer is on, so the
-// wildcard / each restaurant domain must be listed under Supabase ->
-// Authentication -> URL Configuration -> Redirect URLs.
+// The server talks to Supabase with the service_role key, so nothing below relies
+// on database RLS: each check is done here, against req.tenant.
 
-const express = require('express');
-const rateLimit = require('express-rate-limit');
-const { createClient } = require('@supabase/supabase-js');
+const ROLES = ['owner', 'admin', 'staff'];
 
-const PROFILE_COLS = 'id, display_name, phone, address, created_at, updated_at';
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
-const LIMITS = { display_name: 80, phone: 30, address: 300 };
-
-// Verifying a password signs the user in on whichever client does it, and that client
-// then sends requests as that user. Never do it on the shared service_role client: use a new client each time.
-function defaultAuthClient() {
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
-  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
-}
-
-const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
-const clean = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : undefined);
-
-function createAuthRouter({ supabase, auth, createAuthClient = defaultAuthClient, limit = 20 }) {
-  const router = express.Router();
-
-  // Credential guessing and email spam are limited per IP.
-  const limiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    limit,
-    standardHeaders: true,
-    legacyHeaders: false,
-    message: { error: 'Too many attempts. Please wait a while and try again.' },
-  });
-
-  async function getOrCreateProfile(user) {
-    const read = () => supabase.from('bg_profiles').select(PROFILE_COLS).eq('id', user.id).maybeSingle();
-    const first = await read();
-    if (first.error) throw first.error;
-    if (first.data) return first.data;
-    // ignoreDuplicates: two simultaneous first logins don't fail on the primary key, the loser just re-reads.
-    const { error } = await supabase.from('bg_profiles').upsert(
-      { id: user.id, display_name: (user.user_metadata && user.user_metadata.display_name) || '' },
-      { onConflict: 'id', ignoreDuplicates: true });
-    if (error) throw error;
-    const again = await read();
-    if (again.error) throw again.error;
-    return again.data;
+function createAuth({ supabase }) {
+  // Valid Supabase access token in "Authorization: Bearer <token>" -> the auth user, else null.
+  async function getAuthUser(req) {
+    const [scheme, token] = (req.get('authorization') || '').split(' ');
+    if (scheme !== 'Bearer' || !token) return null;
+    const { data, error } = await supabase.auth.getUser(token);
+    if (error || !data || !data.user) return null;
+    return data.user;
   }
 
-  router.post('/register', limiter, asyncHandler(async (req, res) => {
-    const email = clean(req.body.email, 254);
-    const password = typeof req.body.password === 'string' ? req.body.password : '';
-    const displayName = clean(req.body.display_name, LIMITS.display_name) || '';
+  // 'super' | 'owner' | 'admin' | 'staff' | null for this user in this tenant.
+  async function getStaffRole(userId, tenantId) {
+    const { data: profile, error: pErr } = await supabase
+      .from('bg_profiles').select('is_super_admin').eq('id', userId).maybeSingle();
+    if (pErr) throw pErr;
+    if (profile && profile.is_super_admin) return 'super';
 
-    if (!email || !EMAIL_RE.test(email)) return res.status(400).json({ error: 'A valid email is required' });
-    if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
-    if (password.length > 72) return res.status(400).json({ error: 'Password must be at most 72 characters' });
+    const { data: member, error: mErr } = await supabase
+      .from('bg_tenant_members').select('role').eq('tenant_id', tenantId).eq('user_id', userId).maybeSingle();
+    if (mErr) throw mErr;
+    return member ? member.role : null;
+  }
 
-    const { data, error } = await supabase.auth.admin.createUser({
-      email, password, email_confirm: true, user_metadata: { display_name: displayName },
-    });
-    if (error) return res.status(400).json({ error: error.message });
-
+  async function requireAuth(req, res, next) {
     try {
-      const profile = await getOrCreateProfile(data.user);
-      return res.status(201).json({ profile });
-    } catch (err) {
-      await supabase.auth.admin.deleteUser(data.user.id);     // no half-created accounts
-      throw err;
-    }
-  }));
+      const user = await getAuthUser(req);
+      if (!user) return res.status(401).json({ error: 'Authentication required' });
+      req.authUser = user;
+      next();
+    } catch (err) { next(err); }
+  }
 
-  router.post('/login', limiter, asyncHandler(async (req, res) => {
-    const email = clean(req.body.email, 254);
-    const password = typeof req.body.password === 'string' ? req.body.password : '';
-    if (!email || !password) return res.status(400).json({ error: 'Email and password are required' });
+  // Signed in AND holding one of `roles` in req.tenant (super admins always pass).
+  // Mount after the tenant resolver. Sets req.authUser and req.staffRole.
+  const requireStaff = (roles = ROLES) => async (req, res, next) => {
+    try {
+      if (!req.tenant) return res.status(500).json({ error: 'Server error' });
+      const user = await getAuthUser(req);
+      if (!user) return res.status(401).json({ error: 'Authentication required' });
+      const role = await getStaffRole(user.id, req.tenant.id);
+      if (!role || (role !== 'super' && !roles.includes(role))) {
+        return res.status(403).json({ error: 'Staff access required' });
+      }
+      req.authUser = user;
+      req.staffRole = role;
+      next();
+    } catch (err) { next(err); }
+  };
 
-    const { data, error } = await createAuthClient().auth.signInWithPassword({ email, password });
-    if (error || !data || !data.session) return res.status(401).json({ error: 'Invalid email or password' });
-
-    const profile = await getOrCreateProfile(data.user);
-    res.json({
-      access_token: data.session.access_token,
-      refresh_token: data.session.refresh_token,
-      expires_at: data.session.expires_at,
-      profile,
-    });
-  }));
-
-  // Access tokens are short-lived; the browser trades its refresh token for a new pair instead of logging the customer out.
-  router.post('/refresh', limiter, asyncHandler(async (req, res) => {
-    const refreshToken = typeof req.body.refresh_token === 'string' ? req.body.refresh_token : '';
-    if (!refreshToken) return res.status(400).json({ error: 'refresh_token is required' });
-    const { data, error } = await createAuthClient().auth.refreshSession({ refresh_token: refreshToken });
-    if (error || !data || !data.session) return res.status(401).json({ error: 'Session expired. Please sign in again.' });
-    res.json({
-      access_token: data.session.access_token,
-      refresh_token: data.session.refresh_token,
-      expires_at: data.session.expires_at,
-    });
-  }));
-
-  router.get('/me', auth.requireAuth, asyncHandler(async (req, res) => {
-    const [profile, staffRole] = await Promise.all([
-      getOrCreateProfile(req.authUser),
-      auth.getStaffRole(req.authUser.id, req.tenant.id),
-    ]);
-    // `staff` tells the page whether to show an admin link for this restaurant. It is not a permission: every admin route re-checks.
-    res.json({ user_id: req.authUser.id, email: req.authUser.email, profile, staff: staffRole });
-  }));
-
-  router.patch('/me', auth.requireAuth, asyncHandler(async (req, res) => {
-    const updates = {};
-    for (const field of Object.keys(LIMITS)) {
-      const v = clean(req.body[field], LIMITS[field]);
-      if (v !== undefined) updates[field] = v;
-    }
-    if (!Object.keys(updates).length) return res.status(400).json({ error: 'No profile fields supplied' });
-
-    await getOrCreateProfile(req.authUser);
-    const { data: profile, error } = await supabase.from('bg_profiles')
-      .update(updates).eq('id', req.authUser.id).select(PROFILE_COLS).single();
-    if (error) throw error;
-    res.json({ profile });
-  }));
-
-  // The customer's orders at THIS restaurant only.
-  router.get('/orders', auth.requireAuth, asyncHandler(async (req, res) => {
-    const { data: orders, error } = await supabase.from('bg_orders')
-      .select('id, order_number, order_type, table_label, status, payment_status, total, currency, created_at, bg_order_items(name_snapshot, quantity, line_total)')
-      .eq('tenant_id', req.tenant.id)
-      .eq('user_id', req.authUser.id)
-      .order('created_at', { ascending: false })
-      .limit(50);
-    if (error) throw error;
-    res.json({ orders });
-  }));
-
-  router.post('/request-password-reset', limiter, asyncHandler(async (req, res) => {
-    const email = clean(req.body.email, 254);
-    if (!email || !EMAIL_RE.test(email)) return res.status(400).json({ error: 'A valid email is required' });
-    // Back to the restaurant the customer is on. Supabase only honours addresses on its Redirect URLs list,
-    // so a forged Host header cannot send the link somewhere else.
-    const redirectTo = `${req.protocol}://${req.get('host')}/reset-password.html`;
-    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
-    if (error) console.error('resetPasswordForEmail:', error.message);
-    res.json({ ok: true });                // same answer whether or not the email exists
-  }));
-
-  router.post('/reset-password', limiter, asyncHandler(async (req, res) => {
-    const accessToken = typeof req.body.access_token === 'string' ? req.body.access_token : '';
-    const newPassword = typeof req.body.new_password === 'string' ? req.body.new_password : '';
-    if (!accessToken || !newPassword) return res.status(400).json({ error: 'access_token and new_password are required' });
-    if (newPassword.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
-    if (newPassword.length > 72) return res.status(400).json({ error: 'Password must be at most 72 characters' });
-
-    const { data, error } = await supabase.auth.getUser(accessToken);
-    if (error || !data || !data.user) {
-      return res.status(401).json({ error: 'This reset link is invalid or has expired. Please request a new one.' });
-    }
-    const { error: updateError } = await supabase.auth.admin.updateUserById(data.user.id, { password: newPassword });
-    if (updateError) throw updateError;
-    res.json({ ok: true });
-  }));
-
-  return router;
+  return { getAuthUser, getStaffRole, requireAuth, requireStaff };
 }
 
-module.exports = { createAuthRouter };
+module.exports = { createAuth, ROLES };
