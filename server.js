@@ -18,6 +18,8 @@ const { createTenantResolver, publicConfig } = require('./src/tenant');
 const { createStorefront } = require('./src/render');
 const { createAuth } = require('./src/middleware/auth');
 const { createAuthRouter } = require('./src/routes/auth');
+const { createCartRouter } = require('./src/routes/cart');
+const { createOrdersRouter } = require('./src/routes/orders');
 
 let compression = null;
 try { compression = require('compression'); }
@@ -92,8 +94,10 @@ app.get('/api/menu', async (req, res, next) => {
 });
 
 app.use('/api/auth', createAuthRouter({ supabase, auth }));
+app.use('/api/cart', createCartRouter({ supabase, auth }));
+app.use('/api', createOrdersRouter({ supabase, auth }));       // /api/orders, /api/orders/:number, /api/table/:token
 
-// ---- Routes for later steps mount here (each gets req.tenant): cart, orders, admin, assistant ----
+// ---- Routes for later steps mount here (each gets req.tenant): admin, assistant ----
 
 app.get('/', async (req, res, next) => {
   try {
