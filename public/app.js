@@ -1,6 +1,9 @@
 (() => {
 'use strict';
 const $ = (s, r = document) => r.querySelector(s);
+const CFG = window.CONFIG || {}, FEAT = CFG.features || {};
+if (CFG.pageTitle) document.title = CFG.pageTitle;
+if (CFG.brand) $('.brand').textContent = CFG.brand;
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const smooth = t => t * t * (3 - 2 * t);
 const money = n => '$' + n.toFixed(2);
@@ -301,9 +304,28 @@ $('#chips').addEventListener('click', e => {
 });
 
 function renderList() {
-  $('#list').innerHTML = items.filter(i => activeCat === 'all' || i.cat === activeCat).map(i => `<button class="row" data-id="${i.id}"> <span class="th"><img src="${img(i)}" alt="" loading="lazy"></span> <span class="in"><p class="nm">${esc(i.name)}</p><p class="pr">${i.offer ? '<span class="offer">OFFER</span>' : ''}${money(i.price)}</p></span> </button>`).join('');
+  const corner = p => `<svg class="corner ${p}" viewBox="0 0 48 48" aria-hidden="true"><use href="#rh-corner"/></svg>`;
+  $('#list').innerHTML = items.filter(i => activeCat === 'all' || i.cat === activeCat).map(i => {
+    const p = money(i.price), food = esc(i.png || img(i));   // layer 3 falls back to the normal photo
+    return `<article class="row" data-id="${i.id}">
+      ${i.bg ? `<img class="bg" src="${esc(i.bg)}" alt="" loading="lazy">` : ''}
+      <div class="card">${corner('tl')}${corner('tr')}${corner('bl')}${corner('br')}
+        <svg class="flourish" viewBox="0 0 120 24" aria-hidden="true"><use href="#rh-flourish"/></svg>
+        <h3 class="name">${esc(i.name)}</h3><p class="price">${p}</p>
+      </div>
+      ${i.offer ? '<span class="offer">OFFER</span>' : ''}
+      <div class="food"><img src="${food}" alt="" loading="lazy" decoding="async"></div>
+      <button class="open" type="button" aria-label="${esc(i.name)}"></button>
+      <button class="add" type="button"><span>Add</span><b>${p}</b></button>
+    </article>`;
+  }).join('');
 }
-$('#list').addEventListener('click', e => { const r = e.target.closest('.row'); if (r) openItem(+r.dataset.id); });
+$('#list').addEventListener('click', e => {
+  const r = e.target.closest('.row'); if (!r) return;
+  const id = +r.dataset.id;
+  if (e.target.closest('.add')) { basket.set(id, (basket.get(id) || 0) + 1); badge(); toast('Added to basket'); }
+  else openItem(id);
+});
 renderList();
 
 /* ================= SIMULATED BASKET / SHEETS ================= */
@@ -317,9 +339,21 @@ addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
 let toastT; function toast(m) { const t = $('#toast'); t.textContent = m; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 1600); }
 function badge() { const n = [...basket.values()].reduce((a, b) => a + b, 0); const b = $('#badge'); b.textContent = n; b.hidden = !n; }
 
+function loadViewer() {
+  if (customElements.get('model-viewer') || document.getElementById('mvScript')) return;
+  const sc = document.createElement('script');
+  sc.type = 'module'; sc.id = 'mvScript';
+  sc.src = 'https://unpkg.com/@google/model-viewer@3.5.0/dist/model-viewer.min.js';
+  document.head.appendChild(sc);
+}
 function openItem(id) {
   const i = byId(id);
-  open( `<img class="big" src="${img(i)}" alt="${esc(i.name)}"> <h3>${esc(i.name)}</h3> <p class="muted">${esc(i.desc)}</p> <div class="line"><span>${i.rating.toFixed(1)} ★ · ${i.cal} kcal</span><b style="color:var(--gold)">${money(i.price)}</b></div> <button class="btn" data-add="${i.id}">Add to basket</button> <button class="btn ghost" data-close>Close</button>` );
+  let media = `<img class="big" src="${img(i)}" alt="${esc(i.name)}">`;
+  if (FEAT.ar3d && i.model) {
+    loadViewer();   // only fetched the first time someone opens a 3D dish
+    media = `<model-viewer src="models/${esc(i.model)}" poster="${img(i)}" alt="${esc(i.name)}" ar ar-modes="webxr scene-viewer quick-look" camera-controls auto-rotate shadow-intensity="1" environment-image="neutral" interaction-prompt="none"><button slot="ar-button" class="ar-btn">View on your table</button></model-viewer>`;
+  }
+  open( `${media} <h3>${esc(i.name)}</h3> <p class="muted">${esc(i.desc)}</p> <div class="line"><span>${i.rating.toFixed(1)} ★ · ${i.cal} kcal</span><b style="color:var(--gold)">${money(i.price)}</b></div> <button class="btn" data-add="${i.id}">Add to basket</button> <button class="btn ghost" data-close>Close</button>` );
 }
 
 function openBasket(done) {
@@ -327,13 +361,20 @@ function openBasket(done) {
   if (!basket.size) return open( `<h3>Your basket</h3><p class="muted">Nothing here yet. Add something from the menu.</p><button class="btn" data-goto="menu">Browse menu</button>` );
   let total = 0;
   const lines = [...basket].map(([id, q]) => { const i = byId(id); total += i.price * q; return  `<div class="line"><span>${esc(i.name)}<br><small style="color:var(--muted)">${money(i.price)}</small></span><span class="qty"><button data-dec="${id}">−</button> ${q} <button data-add="${id}" data-stay>+</button></span></div>` ; }).join('');
-  open( `<h3>Your basket</h3>${lines}<div class="total"><span>Total</span><span>${money(total)}</span></div><button class="btn" data-order>Place order (demo)</button><button class="btn ghost" data-close>Keep browsing</button>` );
+  open( `<h3>Your basket</h3>${lines}<div class="total"><span>Total</span><span>${money(total)}</span></div>${FEAT.whatsappOrder ? `<button class="btn wa" data-wa>Order on WhatsApp</button>` : ''}<button class="btn ${FEAT.whatsappOrder ? 'ghost' : ''}" data-order>Place order (demo)</button><button class="btn ghost" data-close>Keep browsing</button>` );
 }
 
 cardEl.addEventListener('click', e => {
   const t = e.target.closest('button'); if (!t) return;
   if (t.dataset.add) { const id = +t.dataset.add; basket.set(id, (basket.get(id) || 0) + 1); badge(); if ('stay' in t.dataset) openBasket(); else { close(); toast('Added to basket'); } }
   else if (t.dataset.dec) { const id = +t.dataset.dec, q = basket.get(id) - 1; q > 0 ? basket.set(id, q) : basket.delete(id); badge(); openBasket(); }
+  else if ('wa' in t.dataset) {
+    let total = 0;
+    const lines = [...basket].map(([id, q]) => { const i = byId(id); total += i.price * q; return `${q} x ${i.name} - ${money(i.price * q)}`; });
+    const text = `${CFG.brand || 'Order'} order:\n${lines.join('\n')}\nTotal: ${money(total)}`;
+    const num = String(CFG.whatsappNumber || '').replace(/\D/g, '');
+    window.open(`https://wa.me/${num}?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+  }
   else if ('order' in t.dataset) { const d = new Date(), p = n => String(n).padStart(2, '0'); const no = `RH-${p(d.getFullYear() % 100)}${p(d.getMonth() + 1)}${p(d.getDate())}-${String(Math.floor(Math.random() * 9000) + 1000)}` ; basket.clear(); badge(); openBasket(no); }
   else if (t.dataset.goto) { close(); go(t.dataset.goto); }
   else if ('close' in t.dataset) close();

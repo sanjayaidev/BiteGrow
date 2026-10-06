@@ -54,8 +54,10 @@ function videoManifest() {
 app.get('/menu-data.js', (req, res) => {
   let menu = { categories: [], items: [] };
   try { menu = JSON.parse(fs.readFileSync(path.join(__dirname, 'menu.json'), 'utf8')); } catch (e) { console.error('menu.json:', e.message); }
+  let config = {};
+  try { config = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8')); } catch (e) { console.error('config.json:', e.message); }
   res.type('text/javascript').set('Cache-Control', 'no-cache')
-    .send(`window.MENU = ${JSON.stringify(menu)};\nwindow.VIDEOS = ${JSON.stringify(videoManifest())};`);
+    .send(`window.MENU = ${JSON.stringify(menu)};\nwindow.VIDEOS = ${JSON.stringify(videoManifest())};\nwindow.CONFIG = ${JSON.stringify(config)};`);
 });
 app.get('/api/menu', (req, res) => res.sendFile(path.join(__dirname, 'menu.json')));
 

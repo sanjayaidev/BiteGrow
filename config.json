@@ -1,0 +1,10 @@
+{
+  "brand": "RED HOUSE",
+  "pageTitle": "Red House — Demo",
+  "currency": "$",
+  "whatsappNumber": "",
+  "features": {
+    "ar3d": true,
+    "whatsappOrder": true
+  }
+}

@@ -73,12 +73,6 @@ body{margin:0;background:#070606;color:var(--text);font-family:'Poppins',system-
 .chips::-webkit-scrollbar{display:none}
 .chip{flex:0 0 auto;background:var(--surface);color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:7px 14px;font:600 12px 'Poppins',sans-serif;cursor:pointer}
 .chip.on{background:var(--gold);color:#1a1408;border-color:var(--gold)}
-.row{display:flex;align-items:center;gap:14px;padding:12px 0;border:0;border-bottom:1px solid var(--line);background:none;width:100%;text-align:left;color:inherit;font:inherit;cursor:pointer}
-.row:active{background:rgba(227,178,60,.06)}
-.row .th{width:84px;height:80px;flex:none;display:flex;align-items:center;justify-content:center}
-.row .th img{max-width:100%;max-height:100%;object-fit:contain}
-.row .in{flex:1;min-width:0}.row .nm{font-size:15px;font-weight:600;margin:0 0 6px;line-height:1.3}
-.row .pr{margin:0;color:var(--gold);font-weight:600;font-size:14px}
 .offer{font-size:10px;color:var(--red);border:1px solid var(--red);border-radius:6px;padding:1px 6px;margin-right:6px}
 .foot-note{text-align:center;color:var(--muted);font-size:11px;padding:28px 0 10px}
 
@@ -105,3 +99,42 @@ body{margin:0;background:#070606;color:var(--text);font-family:'Poppins',system-
 .toast{position:fixed;left:50%;bottom:calc(var(--tabs) + 18px);transform:translate(-50%,20px);background:var(--gold);color:#1a1408;font-weight:600;font-size:13px;padding:9px 16px;border-radius:999px;opacity:0;pointer-events:none;transition:.25s;z-index:50}
 .toast.show{opacity:1;transform:translate(-50%,0)}
 @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.hint i,.cue-touch i{animation:none!important}}
+/* 3D / AR viewer in the item sheet */
+.sheet model-viewer{display:block;width:100%;height:260px;background:#000;border-radius:12px;margin-bottom:12px;--poster-color:#000}
+.ar-btn{position:absolute;right:10px;bottom:10px;border:0;border-radius:999px;background:var(--gold);color:#1a1408;font:700 12px 'Poppins',sans-serif;padding:8px 14px;cursor:pointer}
+.btn.wa{background:#25d366;color:#052e16}
+
+/* ===== MENU CARD: three layers in one 2.5:1 box (ported from MenuSystem) =====
+   1 .bg    background picture (item.bg), dark brown gradient when none
+   2 .card  parchment panel over the right two thirds: ornaments, name, price
+   3 .food  transparent food PNG, right-aligned, drawn over background AND card
+   Tune with --card-w and --food-overlap (shares of the box width). */
+.row{--u:calc(min(100vw - 32px, 448px) / 100);--card-w:66.6667%;--food-overlap:20%;--paper:#f6f1e6;--paper-edge:#e9e0cd;--ornament:#b8975a;--ink:#2b2622;
+  position:relative;display:block;width:100%;aspect-ratio:2.5/1;margin:0 0 14px;overflow:hidden;color:var(--ink);
+  background:radial-gradient(120% 120% at 25% 30%,#3a2d24 0%,#2a211b 60%,#1d1612 100%)}
+.row .bg{position:absolute;inset:0;z-index:0;width:100%;height:100%;object-fit:cover;display:block}
+.row .card{position:absolute;inset-block:0;inset-inline-end:0;z-index:1;width:var(--card-w);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:calc(2.4*var(--u));text-align:center;
+  padding:calc(4*var(--u)) calc(3*var(--u)) calc(11*var(--u));padding-inline-start:calc(var(--food-overlap) + 1.5*var(--u));
+  background:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .45  0 0 0 0 .38  0 0 0 0 .25  0 0 0 .09 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>"),radial-gradient(120% 90% at 50% 40%,#fbf8f0 0%,var(--paper) 55%,var(--paper-edge) 100%);
+  box-shadow:calc(-1.2*var(--u)) 0 calc(3*var(--u)) rgba(0,0,0,.35)}
+.row .card::before{content:"";position:absolute;inset:calc(1.6*var(--u));border:1px solid rgba(184,151,90,.55);pointer-events:none}
+.row .corner{position:absolute;width:calc(4.6*var(--u));height:calc(4.6*var(--u));color:var(--ornament);pointer-events:none}
+.row .corner.tl{top:calc(1.1*var(--u));left:calc(1.1*var(--u))}
+.row .corner.tr{top:calc(1.1*var(--u));right:calc(1.1*var(--u));transform:scaleX(-1)}
+.row .corner.bl{bottom:calc(1.1*var(--u));left:calc(1.1*var(--u));transform:scaleY(-1)}
+.row .corner.br{bottom:calc(1.1*var(--u));right:calc(1.1*var(--u));transform:scale(-1,-1)}
+.row .flourish{width:calc(11*var(--u));height:auto;color:var(--ornament)}
+.row .name{margin:0;font-family:'Cinzel','Cormorant Garamond',Georgia,serif;font-weight:600;letter-spacing:.06em;text-transform:uppercase;font-size:max(12px,calc(3.2*var(--u)));line-height:1.2;overflow-wrap:anywhere}
+.row .price{margin:0;font-family:'Cormorant Garamond',Georgia,serif;font-weight:700;font-size:max(16px,calc(4.6*var(--u)));line-height:1;letter-spacing:.02em;color:#5b4a2c}
+.row .offer{position:absolute;top:calc(2.6*var(--u));right:calc(8*var(--u));margin:0;font-size:9px;background:var(--red);color:#fff;border:0;border-radius:0;padding:2px 6px;letter-spacing:.08em}
+.row .food{position:absolute;z-index:2;pointer-events:none;inset-block:5%;inset-inline-start:0;width:calc(100% - var(--card-w) + var(--food-overlap));display:flex;align-items:center;justify-content:flex-end}
+.row .food img{display:block;height:100%;width:auto;max-width:100%;object-fit:contain;object-position:right center;filter:drop-shadow(0 calc(1*var(--u)) calc(1.4*var(--u)) rgba(0,0,0,.45))}
+.row .open{position:absolute;inset:0;z-index:3;width:100%;height:100%;margin:0;padding:0;border:0;background:transparent;cursor:pointer;-webkit-tap-highlight-color:rgba(227,178,60,.18)}
+.row .open:active{background:rgba(227,178,60,.08)}
+.row .open:focus-visible{outline:2px solid var(--gold);outline-offset:-3px}
+.row .add{position:absolute;inset-inline-end:calc(2.4*var(--u));bottom:calc(2.4*var(--u));z-index:4;display:flex;align-items:center;gap:calc(1.4*var(--u));border:0;cursor:pointer;background:var(--gold);color:#1a1408;
+  padding:max(9px,calc(1.3*var(--u))) max(10px,calc(2.2*var(--u)));font:600 max(11px,calc(1.9*var(--u)))/1 'Poppins',sans-serif;box-shadow:0 calc(.3*var(--u)) calc(1*var(--u)) rgba(0,0,0,.3);transition:filter .15s,transform .1s}
+.row .add:hover{filter:brightness(1.07)}.row .add:active{transform:translateY(1px)}
+.row .add b{font-weight:700}
+@media (max-width:420px){.row .card{gap:calc(2*var(--u));padding-bottom:calc(12*var(--u))}}
+@media (max-width:400px){.row .add b{display:none}.row .add{padding:max(9px,calc(1.3*var(--u))) max(9px,calc(2*var(--u)))}}

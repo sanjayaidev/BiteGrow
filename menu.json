@@ -34,7 +34,8 @@
       "price": 11.99,
       "cal": 780,
       "rating": 4.6,
-      "offer": false
+      "offer": false,
+      "model": "model-1.glb"
     },
     {
       "id": 2,
@@ -44,7 +45,8 @@
       "price": 11.99,
       "cal": 1020,
       "rating": 4.9,
-      "offer": true
+      "offer": true,
+      "model": "model-2.glb"
     },
     {
       "id": 3,
@@ -54,7 +56,8 @@
       "price": 11.99,
       "cal": 850,
       "rating": 4.4,
-      "offer": false
+      "offer": false,
+      "model": "model-3.glb"
     },
     {
       "id": 4,
@@ -64,7 +67,8 @@
       "price": 9.99,
       "cal": 520,
       "rating": 4.2,
-      "offer": false
+      "offer": false,
+      "model": "model-4.glb"
     },
     {
       "id": 5,
@@ -74,7 +78,8 @@
       "price": 9.99,
       "cal": 610,
       "rating": 4.3,
-      "offer": false
+      "offer": false,
+      "model": "model-5.glb"
     },
     {
       "id": 6,
