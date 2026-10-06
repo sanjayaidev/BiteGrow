@@ -1,135 +1,128 @@
+'use strict';
+// BiteGrow server: one deployment, many restaurants.
+//
+// Every request is matched to a tenant (src/tenant.js) from its hostname. The
+// storefront HTML is rendered on the server from that tenant's database rows
+// (src/render.js); there is no bundled menu. Routes added in later steps
+// (auth, cart, orders, admin, chat assistant) mount at the marked spot below and
+// receive req.tenant, which every database query on a bg_ table must filter by.
+
+require('dotenv').config();
 const express = require('express');
-const multer = require('multer');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const path = require('path');
-const fs = require('fs');
-const os = require('os');
-const { execFile } = require('child_process');
 
-const PORT = process.env.PORT || 3000;
+const { supabase } = require('./src/db');
+const { createTenantResolver, publicConfig } = require('./src/tenant');
+const { createStorefront } = require('./src/render');
+const { createAuth } = require('./src/middleware/auth');
+const { createAuthRouter } = require('./src/routes/auth');
+
+let compression = null;
+try { compression = require('compression'); }
+catch (e) { console.warn('compression is not installed (npm i compression): pages will be sent uncompressed.'); }
+
+const PORT = Number(process.env.PORT) || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
-const VIDEOS_DIR = path.join(PUBLIC_DIR, 'videos');
-const TMP_DIR = path.join(os.tmpdir(), 'promo-uploads');
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || ''; // optional: protects /admin and uploads
-const SLOTS = ['hero', 'pop1', 'pop2', 'pop3'];
-fs.mkdirSync(VIDEOS_DIR, { recursive: true });
-fs.mkdirSync(TMP_DIR, { recursive: true });
+const PRODUCTION = process.env.NODE_ENV === 'production';
 
-// ffmpeg: FFMPEG_PATH env > ffmpeg.exe / ffmpeg next to server.js > PATH
-function findFfmpeg() {
-  if (process.env.FFMPEG_PATH) return process.env.FFMPEG_PATH;
-  const names = process.platform === 'win32' ? ['ffmpeg.exe'] : ['ffmpeg'];
-  for (const n of names) {
-    const p = path.join(__dirname, n);
-    if (!fs.existsSync(p)) continue;
-    if (process.platform !== 'win32') {
-      try { fs.chmodSync(p, fs.statSync(p).mode | 0o100); }
-      catch (e) { console.error(`Cannot make bundled ffmpeg executable: ${e.message}`); }
-    }
-    return p;
-  }
-  return 'ffmpeg';
-}
-const FFMPEG = findFfmpeg();
-const ffmpeg = (args, cb) => execFile(FFMPEG, ['-y', '-loglevel', 'error', ...args], { windowsHide: true, maxBuffer: 1 << 24 }, cb);
-
-function auth(req, res, next) {
-  if (!ADMIN_PASSWORD) return next();
-  const raw = Buffer.from((req.headers.authorization || '').split(' ')[1] || '', 'base64').toString();
-  if (raw.slice(raw.indexOf(':') + 1) === ADMIN_PASSWORD) return next();
-  res.set('WWW-Authenticate', 'Basic realm="admin"').status(401).send('Password required');
-}
+const resolver = createTenantResolver({
+  supabase,
+  baseDomain: process.env.BASE_DOMAIN || '',
+  defaultTenant: process.env.DEFAULT_TENANT || '',
+  allowQueryOverride: !PRODUCTION,            // ?tenant=<slug> for local testing only
+});
+const storefront = createStorefront({ supabase, reloadTemplate: !PRODUCTION });
+const auth = createAuth({ supabase });
 
 const app = express();
+// Hosting platforms put the app behind a proxy; trusting its hop count gives real client IPs and hostnames.
+app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS ?? 1));
+app.disable('x-powered-by');
 
-// Video URLs carry a version (file mtime). Videos are cached "forever" by the browser, and
-// replacing a clip changes its version, so only that clip is fetched again.
-function videoManifest() {
-  const ver = f => { try { return Math.floor(fs.statSync(path.join(VIDEOS_DIR, f)).mtimeMs); } catch (e) { return 0; } };
-  const out = {};
-  for (const s of SLOTS) out[s] = { src: `videos/${s}.mp4?v=${ver(s + '.mp4')}`, poster: `videos/${s}.jpg?v=${ver(s + '.jpg')}` };
-  return out;
-}
+// CSP stays off: the page carries inline data and the 3D viewer loads from a CDN (revisit once scripts are split out).
+app.use(helmet({ contentSecurityPolicy: false }));
+if (compression) app.use(compression());
 
-// Menu comes from menu.json; edit it and refresh. Served as a script so the page needs no async loading.
-app.get('/menu-data.js', (req, res) => {
-  let menu = { categories: [], items: [] };
-  try { menu = JSON.parse(fs.readFileSync(path.join(__dirname, 'menu.json'), 'utf8')); } catch (e) { console.error('menu.json:', e.message); }
-  let config = {};
-  try { config = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8')); } catch (e) { console.error('config.json:', e.message); }
-  res.type('text/javascript').set('Cache-Control', 'no-cache')
-    .send(`window.MENU = ${JSON.stringify(menu)};\nwindow.VIDEOS = ${JSON.stringify(videoManifest())};\nwindow.CONFIG = ${JSON.stringify(config)};`);
-});
-app.get('/api/menu', (req, res) => res.sendFile(path.join(__dirname, 'menu.json')));
+app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
-app.get(['/admin', '/admin.html'], auth, (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'admin.html')));
+// The old single-client admin only managed one global set of videos. It returns, per tenant, with the admin step.
+app.get(['/admin', '/admin.html'], (req, res) => res.status(503).type('text').send('Admin is being rebuilt.'));
 
-// express.static handles HTTP Range requests, which video seeking needs.
+// Static assets are shared by all tenants and need no database lookup, so they are served before tenant
+// resolution. index:false leaves "/" to the renderer. Videos support Range requests (needed for seeking).
 app.use(express.static(PUBLIC_DIR, {
-  index: 'index.html',
-  setHeaders: (res, file) => { if (file.startsWith(VIDEOS_DIR)) res.set('Cache-Control', 'public, max-age=31536000, immutable'); }
+  index: false,
+  setHeaders: (res, file) => {
+    if (file.endsWith('.html')) return;
+    if (/[\\/](videos|models)[\\/]/.test(file)) res.set('Cache-Control', 'public, max-age=31536000, immutable');
+    else res.set('Cache-Control', 'public, max-age=3600');
+  },
 }));
 
-const upload = multer({
-  dest: TMP_DIR,
-  limits: { fileSize: 500 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
-    ['.mp4', '.mov', '.webm', '.mkv', '.avi', '.m4v'].includes(ext) ? cb(null, true) : cb(new Error('Unsupported file type ' + ext));
-  }
+// Everything below belongs to a restaurant.
+app.use(resolver.middleware);
+
+app.use('/api', rateLimit({
+  windowMs: 60 * 1000,
+  limit: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests. Please slow down.' },
+}));
+app.use('/api', express.json({ limit: '100kb' }));
+
+// What the browser may know about this restaurant (no secrets).
+app.get('/api/config', (req, res) => {
+  res.set('Cache-Control', 'no-cache').json(publicConfig(req.tenant));
 });
 
-// POST /api/upload/:slot  (slot = hero | pop1 | pop2 | pop3), form field "video"
-app.post('/api/upload/:slot', auth, (req, res) => {
-  const slot = req.params.slot;
-  if (!SLOTS.includes(slot)) return res.status(404).json({ error: 'Unknown slot' });
-  upload.single('video')(req, res, err => {
-    if (err) return res.status(400).json({ error: err.message });
-    if (!req.file) return res.status(400).json({ error: 'No video received' });
-    const src = req.file.path;
-    const isHero = slot === 'hero';
-    const tmpOut = path.join(TMP_DIR, `${slot}-${Date.now()}.mp4`);
-    // hero and popular: every frame a keyframe (-g 1) so scroll scrubbing is smooth
-    const vArgs = isHero
-      ? ['-i', src, '-t', '30', '-an', '-vf', 'fps=30,scale=960:-2', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '26', '-g', '1', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', tmpOut]
-      : ['-i', src, '-t', '12', '-an', '-vf', 'fps=30,scale=640:-2', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '28', '-g', '1', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', tmpOut];
-    const done = (status, body) => { fs.unlink(src, () => {}); fs.unlink(tmpOut, () => {}); res.status(status).json(body); };
-    ffmpeg(vArgs, (e, so, se) => {
-      if (e) return done(500, { error: e.code === 'ENOENT' ? `ffmpeg not found (${FFMPEG}). Put ffmpeg.exe next to server.js or set FFMPEG_PATH.` : 'ffmpeg failed', detail: String(se || e.message).split('\n').slice(-4).join('\n') });
-      ffmpeg(['-i', src, '-frames:v', '1', '-vf', `scale=${isHero ? 960 : 640}:-2`, '-q:v', '3', path.join(VIDEOS_DIR, `${slot}.jpg`)], e2 => {
-        if (e2) return done(500, { error: 'poster failed' });
-        try { fs.copyFileSync(tmpOut, path.join(VIDEOS_DIR, `${slot}.mp4`)); } catch (e3) { return done(500, { error: e3.message }); }
-        done(200, { success: true, slot, v: Date.now() });
-      });
-    });
-  });
+const languageOf = (req) => {
+  const q = typeof req.query.lang === 'string' ? req.query.lang.toLowerCase() : '';
+  return req.tenant.languages.includes(q) ? q : req.tenant.defaultLang;
+};
+
+// The same data the page was rendered from, as JSON (for refreshing the menu without reloading the page).
+app.get('/api/menu', async (req, res, next) => {
+  try {
+    const { menu } = await storefront.menuFor(req.tenant, languageOf(req));
+    res.set('Cache-Control', 'no-cache').json(menu);
+  } catch (err) { next(err); }
 });
 
-app.use((err, req, res, next) => { console.error(err); res.status(500).json({ error: err.message || 'Server error' }); });
+app.use('/api/auth', createAuthRouter({ supabase, auth }));
 
-process.on('uncaughtException', e => { console.error('\nCRASH:', e && e.stack || e); process.exit(1); });
+// ---- Routes for later steps mount here (each gets req.tenant): cart, orders, admin, assistant ----
 
-function openBrowser(url) {
-  if (process.env.NO_OPEN) return;
-  const cmd = process.platform === 'win32' ? `start "" "${url}"` : process.platform === 'darwin' ? `open "${url}"` : `xdg-open "${url}"`;
-  require('child_process').exec(cmd, () => {});
+app.get('/', async (req, res, next) => {
+  try {
+    const lang = languageOf(req);
+    const html = await storefront.renderPage(req.tenant, lang, publicConfig(req.tenant));
+    // ETag revalidation: a repeat visit costs a header exchange, and a menu change shows up on the next load.
+    res.set('Cache-Control', 'no-cache').set('Vary', 'Accept-Encoding').type('html').send(html);
+  } catch (err) { next(err); }
+});
+
+app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
+app.use((req, res) => res.status(404).type('text').send('Not found'));
+
+app.use((err, req, res, next) => {
+  console.error(`[${req.tenant ? req.tenant.slug : 'no-tenant'}] ${req.method} ${req.originalUrl}:`, err && err.stack || err);
+  if (res.headersSent) return next(err);
+  const wantsJson = req.originalUrl.startsWith('/api');
+  res.status(500);
+  return wantsJson ? res.json({ error: 'Server error' }) : res.type('text').send('Something went wrong. Please try again.');
+});
+
+process.on('unhandledRejection', (e) => console.error('Unhandled rejection:', e && e.stack || e));
+
+if (require.main === module) {
+  const server = app.listen(PORT, () => console.log(`BiteGrow listening on http://localhost:${PORT}`));
+  const stop = (sig) => { console.log(`${sig}: shutting down`); server.close(() => process.exit(0)); setTimeout(() => process.exit(1), 10_000).unref(); };
+  process.once('SIGTERM', () => stop('SIGTERM'));
+  process.once('SIGINT', () => stop('SIGINT'));
 }
 
-function start(port, tries) {
-  const srv = app.listen(port);
-  srv.on('listening', () => {
-    const url = `http://localhost:${port}`;
-    console.log('\n==============================================');
-    console.log(`  SERVER RUNNING  ->  ${url}`);
-    console.log(`  Admin           ->  ${url}/admin${ADMIN_PASSWORD ? '  (password protected)' : '  (no password set; set ADMIN_PASSWORD)'}`);
-    console.log('  Keep this window open. Ctrl+C to stop.');
-    console.log('==============================================\n');
-    execFile(FFMPEG, ['-version'], { windowsHide: true }, e => console.log(e ? `ffmpeg: NOT FOUND (${FFMPEG}) - site works, uploads need ffmpeg.exe next to server.js` : `ffmpeg: ${FFMPEG}`));
-    openBrowser(url);
-  });
-  srv.on('error', e => {
-    if (e.code === 'EADDRINUSE' && tries < 15) { console.log(`Port ${port} is busy, trying ${port + 1}...`); return start(port + 1, tries + 1); }
-    console.error(`\nCannot start server on port ${port}: ${e.code || ''} ${e.message}`);
-    process.exit(1);
-  });
-}
-start(Number(PORT), 0);
+// Exported so later routes can bust caches after an admin edit, and so tests can mount the app.
+module.exports = { app, resolver, storefront, auth };
