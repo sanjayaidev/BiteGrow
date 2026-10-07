@@ -1,0 +1,240 @@
+diff --git a/public/admin.html b/public/admin.html
+index 31bebca..7b16248 100644
+--- a/public/admin.html
++++ b/public/admin.html
+@@ -31,6 +31,11 @@ button:disabled{opacity:.5;cursor:default}
+ .errs{margin:8px 0 0;padding-left:18px;font-size:13px;color:var(--bad)}
+ code{background:var(--field);border:1px solid var(--line);border-radius:6px;padding:2px 6px;font-size:12px;word-break:break-all}
+ .chat{background:var(--field);border:1px solid var(--line);border-radius:8px;padding:10px;min-height:60px;margin-top:10px;white-space:pre-wrap;font-size:14px}
++video.pv,img.pv{display:block;width:100%;max-height:220px;object-fit:contain;background:#000;border-radius:8px;margin:8px 0}
++progress{width:100%;height:8px;margin-top:10px;accent-color:var(--gold)}
++.slot{border-top:1px solid var(--line);margin-top:16px;padding-top:4px}.slot:first-of-type{border-top:0;margin-top:8px}
++.wa{display:flex;gap:8px}.wa select{width:150px;flex:none}
++a.quiet{display:inline-block;text-decoration:none;background:none;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:9px 16px}
+ [hidden]{display:none!important}
+ </style></head><body><main>
+ 
+@@ -48,6 +53,7 @@ code{background:var(--field);border:1px solid var(--line);border-radius:6px;padd
+ <nav role="tablist" id="tabs">
+   <button role="tab" data-t="menu" aria-selected="true">Menu</button>
+   <button role="tab" data-t="settings" aria-selected="false">Restaurant</button>
++  <button role="tab" data-t="media" aria-selected="false">Homepage</button>
+   <button role="tab" data-t="meta" aria-selected="false">Meta</button>
+   <button role="tab" data-t="ai" aria-selected="false">Assistant</button>
+ </nav>
+@@ -64,6 +70,15 @@ code{background:var(--field);border:1px solid var(--line);border-radius:6px;padd
+ </div>
+ 
+ <div data-p="settings" hidden>
++<section>
++  <h2>Order on WhatsApp</h2>
++  <p>Checkout sends each order as a WhatsApp message to this mobile number. Customers cannot order until it is set.</p>
++  <label for="w_num">Mobile number</label>
++  <div class="wa"><select id="w_cc" aria-label="Country code"></select><input id="w_num" type="tel" inputmode="tel" autocomplete="off" placeholder="98765 43210"></div>
++  <div class="msg" id="w_prev" aria-live="polite"></div>
++  <div class="check"><input type="checkbox" id="w_on"><label for="w_on" style="margin:0">Show "Order on WhatsApp" at checkout</label></div>
++  <div class="row"><button class="primary" id="saveW">Save WhatsApp</button><a class="quiet" id="w_test" target="_blank" rel="noopener" hidden>Send test message</a></div><div class="msg" id="wMsg" role="status"></div>
++</section>
+ <section>
+   <h2>Restaurant details</h2>
+   <div class="grid">
+@@ -71,7 +86,6 @@ code{background:var(--field);border:1px solid var(--line);border-radius:6px;padd
+     <div><label for="s_title">Browser tab title</label><input id="s_title" type="text" maxlength="120"></div>
+     <div><label for="s_phone">Phone</label><input id="s_phone" type="text" maxlength="30"></div>
+     <div><label for="s_phone2">Second phone</label><input id="s_phone2" type="text" maxlength="30"></div>
+-    <div><label for="s_wa">WhatsApp number <small>(country code, digits)</small></label><input id="s_wa" type="text" inputmode="numeric"></div>
+     <div><label for="s_fee">Delivery fee</label><input id="s_fee" type="number" min="0" step="0.01"></div>
+   </div>
+   <label for="s_addr">Address</label><input id="s_addr" type="text" maxlength="300">
+@@ -80,12 +94,25 @@ code{background:var(--field);border:1px solid var(--line);border-radius:6px;padd
+   <div class="check"><input type="checkbox" id="o_dine_in"><label for="o_dine_in" style="margin:0">Dine-in</label></div>
+   <div class="check"><input type="checkbox" id="o_pickup"><label for="o_pickup" style="margin:0">Pickup</label></div>
+   <div class="check"><input type="checkbox" id="o_delivery"><label for="o_delivery" style="margin:0">Delivery</label></div>
+-  <div class="check"><input type="checkbox" id="f_wa"><label for="f_wa" style="margin:0">Show "Order on WhatsApp"</label></div>
+   <div class="check"><input type="checkbox" id="f_ar"><label for="f_ar" style="margin:0">Show 3D / AR viewer</label></div>
+   <div class="row"><button class="primary" id="saveS">Save details</button></div><div class="msg" id="sMsg" role="status"></div>
+ </section>
+ </div>
+ 
++<div data-p="media" hidden>
++<section>
++  <h2>Homepage videos</h2>
++  <p>Upload any video (up to 300 MB). It is trimmed, compressed and has its sound removed for you. Allowed: mp4, mov, webm, mkv, avi, m4v.</p>
++  <div id="vids"></div>
++</section>
++<section>
++  <h2>Special dishes</h2>
++  <p>Choose the five dishes shown in the Special section. Leave unset to show the top-rated dishes.</p>
++  <div id="sp"></div>
++  <div class="row"><button class="primary" id="saveSp">Save Special dishes</button></div><div class="msg" id="spMsg" role="status"></div>
++</section>
++</div>
++
+ <div data-p="meta" hidden>
+ <section>
+   <h2>WhatsApp, Instagram and Messenger</h2>
+@@ -168,7 +195,7 @@ async function start() {
+     if (!['owner', 'admin', 'super'].includes(me.staff)) { signOut(); say($('loginMsg'), 'This account is not an owner or admin of this restaurant.', false); return; }
+   } catch (e) { return signOut(); }
+   $('login').hidden = true; $('app').hidden = false;
+-  loadSettings(); loadIntegrations();
++  loadSettings(); loadIntegrations(); loadMedia();
+   const cfg = await fetch('/api/config').then((r) => r.json()).catch(() => ({})); if (cfg.brand) $('title').textContent = cfg.brand + ' admin';
+ }
+ 
+@@ -217,9 +244,9 @@ async function loadSettings() {
+   try {
+     const s = await json('settings');
+     $('s_brand').value = s.brand_name; $('s_title').value = s.page_title; $('s_phone').value = s.phone; $('s_phone2').value = s.phone2;
+-    $('s_wa').value = s.whatsapp_number; $('s_fee').value = s.delivery_fee; $('s_addr').value = s.address; $('s_map').value = s.map_url;
++    $('s_fee').value = s.delivery_fee; $('s_addr').value = s.address; $('s_map').value = s.map_url;
+     OT.forEach((t) => $('o_' + t).checked = s.order_types.includes(t));
+-    $('f_wa').checked = !!s.features.whatsappOrder; $('f_ar').checked = !!s.features.ar3d;
++    setWa(s.whatsapp_number, s.features.whatsappOrder !== false); $('f_ar').checked = !!s.features.ar3d;
+   } catch (e) { say($('sMsg'), e.message, false); }
+ }
+ $('saveS').onclick = async () => {
+@@ -227,13 +254,114 @@ $('saveS').onclick = async () => {
+   try {
+     await json('settings', { method: 'PUT', json: {
+       brand_name: $('s_brand').value, page_title: $('s_title').value, phone: $('s_phone').value, phone2: $('s_phone2').value,
+-      whatsapp_number: $('s_wa').value, delivery_fee: $('s_fee').value, address: $('s_addr').value, map_url: $('s_map').value,
+-      order_types: OT.filter((t) => $('o_' + t).checked), features: { whatsappOrder: $('f_wa').checked, ar3d: $('f_ar').checked },
++      delivery_fee: $('s_fee').value, address: $('s_addr').value, map_url: $('s_map').value,
++      order_types: OT.filter((t) => $('o_' + t).checked), features: { ar3d: $('f_ar').checked },
+     } });
+     say($('sMsg'), 'Saved. The site shows the change on the next page load.', true);
+   } catch (e) { say($('sMsg'), e.message, false); }
+ };
+ 
++// ---- WhatsApp order number (country code + mobile number -> digits for wa.me)
++const CC = [['91', 'India +91'], ['1', 'US / Canada +1'], ['44', 'UK +44'], ['971', 'UAE +971'], ['966', 'Saudi Arabia +966'], ['974', 'Qatar +974'], ['968', 'Oman +968'], ['965', 'Kuwait +965'], ['973', 'Bahrain +973'], ['92', 'Pakistan +92'], ['880', 'Bangladesh +880'], ['94', 'Sri Lanka +94'], ['977', 'Nepal +977'], ['65', 'Singapore +65'], ['60', 'Malaysia +60'], ['61', 'Australia +61'], ['20', 'Egypt +20'], ['', 'Other (type full number)']];
++$('w_cc').innerHTML = CC.map(([c, l]) => `<option value="${c}">${l}</option>`).join('');
++function waDigits() {
++  let n = $('w_num').value.replace(/\D/g, ''); const cc = $('w_cc').value;
++  if (!n) return '';
++  if (!cc) return n;
++  if (n.startsWith(cc) && n.length >= cc.length + 9) n = n.slice(cc.length);   // they typed the full international number
++  return cc + n.replace(/^0+/, '');
++}
++function waPreview() {
++  const d = waDigits(), ok = d.length >= 8 && d.length <= 15, t = $('w_test');
++  say($('w_prev'), !d ? 'No number set: customers cannot place orders.' : ok ? `Orders will open https://wa.me/${d}` : 'Number looks too short or too long (8-15 digits including country code).', !d ? false : ok);
++  t.hidden = !ok; if (ok) t.href = `https://wa.me/${d}?text=${encodeURIComponent('Test message from the restaurant admin')}`;
++}
++function setWa(num, on) {
++  const d = String(num || '').replace(/\D/g, '');
++  const m = CC.filter(([c]) => c && d.startsWith(c) && d.length - c.length >= 6).sort((a, b) => b[0].length - a[0].length)[0];
++  $('w_cc').value = m ? m[0] : (d ? '' : '91'); $('w_num').value = m ? d.slice(m[0].length) : d; $('w_on').checked = on; waPreview();
++}
++$('w_cc').onchange = $('w_num').oninput = waPreview;
++$('saveW').onclick = async () => {
++  const d = waDigits(); say($('wMsg'), 'Saving…');
++  try {
++    await json('settings', { method: 'PUT', json: { whatsapp_number: d, features: { whatsappOrder: $('w_on').checked } } });
++    say($('wMsg'), d ? 'Saved. Checkout now sends orders to this number.' : 'Saved. No number is set, so checkout is switched off.', true);
++  } catch (e) { say($('wMsg'), e.message, false); }
++};
++
++// ---- Homepage videos + Special dishes
++const SLOTS = { hero: ['Hero video', 'Plays at the top of the page (first 6 seconds).'], special: ['Special section video', 'Visitors drag through it beside the Special dishes (first 10 seconds).'] };
++async function loadMedia() {
++  try {
++    const m = await json('media'); $('vids').replaceChildren();
++    for (const [slot, [title, hint]] of Object.entries(SLOTS)) {
++      const v = m[slot], box = document.createElement('div'); box.className = 'slot';
++      box.innerHTML = `<h2>${title}</h2><p>${hint}</p><div class="pvbox"></div><label for="f_${slot}">Choose a video</label><input id="f_${slot}" type="file" accept="video/*,.mkv,.avi">
++        <progress hidden max="1" value="0"></progress><div class="row"><button class="primary" data-up>Upload</button><button class="quiet" data-rm ${v ? '' : 'hidden'}>Remove</button></div><div class="msg" role="status"></div>`;
++      if (v) { const el = document.createElement('video'); el.className = 'pv'; el.controls = el.muted = el.playsInline = true; el.preload = 'none'; if (v.poster_url) el.poster = v.poster_url; el.src = v.video_url; box.querySelector('.pvbox').appendChild(el); }
++      else box.querySelector('.pvbox').innerHTML = '<p>No video uploaded. The site uses its default.</p>';
++      const msg = box.querySelector('.msg'), prog = box.querySelector('progress');
++      box.querySelector('[data-up]').onclick = async (e) => {
++        const f = box.querySelector('input').files[0];
++        if (!f) return say(msg, 'Choose a video first.', false);
++        if (f.size > 300 * 1024 * 1024) return say(msg, 'The video must be smaller than 300 MB.', false);
++        e.target.disabled = true; prog.hidden = false; prog.value = 0; say(msg, 'Uploading…');
++        try { await uploadVideo(slot, f, (p) => { prog.value = p; if (p >= 1) say(msg, 'Processing the video. This can take a minute…'); }); await loadMedia(); }
++        catch (err) { say(msg, err.message, false); e.target.disabled = false; prog.hidden = true; return; }
++        const done = $('vids').querySelector(`#f_${slot}`).closest('.slot').querySelector('.msg'); say(done, 'Uploaded. Visitors see it on their next page load.', true);
++      };
++      box.querySelector('[data-rm]').onclick = async () => {
++        if (!confirm('Remove this video? The site falls back to its default.')) return;
++        try { await json('media/' + slot, { method: 'DELETE' }); await loadMedia(); } catch (err) { say(msg, err.message, false); }
++      };
++      $('vids').appendChild(box);
++    }
++  } catch (e) { $('vids').textContent = e.message; }
++  loadSpecial();
++}
++function uploadVideo(slot, file, onProg) {
++  return new Promise((resolve, reject) => {
++    const go = (retry) => {
++      const x = new XMLHttpRequest(); x.open('POST', '/api/admin/media/' + slot); x.timeout = 600000;
++      x.setRequestHeader('authorization', 'Bearer ' + store.get('bg_at'));
++      x.upload.onprogress = (e) => e.lengthComputable && onProg(e.loaded / e.total);
++      x.onload = async () => {
++        let j = {}; try { j = JSON.parse(x.responseText); } catch (e) {}
++        if (x.status === 401 && retry && await refresh()) return go(false);
++        if (x.status === 401) { signOut(); return reject(new Error('Your session ended. Sign in again.')); }
++        x.status < 300 ? resolve(j) : reject(new Error(j.error || 'Upload failed'));
++      };
++      x.onerror = () => reject(new Error('Network error during upload.')); x.ontimeout = () => reject(new Error('The upload timed out.'));
++      const fd = new FormData(); fd.append('video', file); x.send(fd);
++    };
++    go(true);
++  });
++}
++async function loadSpecial() {
++  try {
++    const [menu, cur] = await Promise.all([fetch('/api/menu').then((r) => r.json()), json('media/special-items')]);
++    const items = menu.items || [];
++    if (items.length < 5) { $('sp').innerHTML = '<p>Add at least five available dishes to the menu first (Menu tab).</p>'; $('saveSp').hidden = true; return; }
++    $('saveSp').hidden = false; $('sp').replaceChildren();
++    for (let i = 0; i < 5; i++) {
++      const lab = document.createElement('label'); lab.textContent = 'Dish ' + (i + 1); lab.htmlFor = 'sp' + i;
++      const sel = document.createElement('select'); sel.id = 'sp' + i;
++      sel.add(new Option('Choose a dish…', ''));
++      items.forEach((it) => sel.add(new Option(it.name, it.id)));
++      sel.value = cur.item_ids[i] || ''; $('sp').append(lab, sel);
++    }
++  } catch (e) { say($('spMsg'), e.message, false); }
++}
++$('saveSp').onclick = async () => {
++  const ids = [0, 1, 2, 3, 4].map((i) => Number($('sp' + i).value));
++  if (ids.some((n) => !n)) return say($('spMsg'), 'Choose all five dishes.', false);
++  if (new Set(ids).size !== 5) return say($('spMsg'), 'Each dish can only be picked once.', false);
++  say($('spMsg'), 'Saving…');
++  try { await json('media/special-items', { method: 'PUT', json: { item_ids: ids } }); say($('spMsg'), 'Saved.', true); }
++  catch (e) { say($('spMsg'), e.message, false); }
++};
++
+ // ---- Meta + assistant
+ const CH = ['web', 'whatsapp', 'instagram', 'facebook'];
+ async function loadIntegrations() {
+diff --git a/public/app.js b/public/app.js
+index 042435b..c1e2909 100644
+--- a/public/app.js
++++ b/public/app.js
+@@ -43,8 +43,9 @@ const wheelMul = () => speedUI / 4;
+    URLs come from the server with a version (?v=mtime). The browser caches videos for a year, and a
+    replaced clip gets a new version, so only that clip is downloaded again. */
+ const VIDS = window.VIDEOS || {};
+-const vSrc = k => (VIDS[k] && VIDS[k].src) || `videos/${k}.mp4`;
+-const vPoster = k => (VIDS[k] && VIDS[k].poster) || `videos/${k}.jpg`;
++// The Special cards (pop1..pop5) share the one "special" clip the restaurant uploads; the bundled pop clips are the fallback.
++const vSrc = k => (VIDS[k] && VIDS[k].src) || (k.startsWith('pop') && VIDS.special && VIDS.special.src) || `videos/${k}.mp4`;
++const vPoster = k => (VIDS[k] && VIDS[k].poster) || (k.startsWith('pop') && VIDS.special && VIDS.special.poster) || `videos/${k}.jpg`;
+ 
+ /* Horizontal drag for touch AND mouse. Vertical movement is never captured, so the page always scrolls. */
+ function dragScrub(el, { canStart, start, move, flag = el }) {
+@@ -195,7 +196,8 @@ const kick = () => [vid, ...cards.filter(c => c.live).map(c => c.video)].forEach
+ ['touchstart', 'pointerdown', 'wheel'].forEach(ev => addEventListener(ev, kick, { once: true, passive: true }));
+ 
+ /* ================= POPULAR: 1 column x 6 rows, max 3 videos loaded at once ================= */
+-const popItems = [...items].sort((a, b) => b.rating - a.rating).slice(0, 3);
++const chosenSpecial = (Array.isArray(FEAT.specialItemIds) ? FEAT.specialItemIds : []).map(byId).filter(Boolean);
++const popItems = chosenSpecial.length ? chosenSpecial : [...items].sort((a, b) => b.rating - a.rating).slice(0, 3);
+ const row = $('#popRow');
+ const MAX_LIVE = 3;
+ const word = matchMedia('(pointer: coarse)').matches ? 'Swipe' : 'Drag';
+

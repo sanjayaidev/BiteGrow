@@ -43,8 +43,9 @@ const wheelMul = () => speedUI / 4;
    URLs come from the server with a version (?v=mtime). The browser caches videos for a year, and a
    replaced clip gets a new version, so only that clip is downloaded again. */
 const VIDS = window.VIDEOS || {};
-const vSrc = k => (VIDS[k] && VIDS[k].src) || `videos/${k}.mp4`;
-const vPoster = k => (VIDS[k] && VIDS[k].poster) || `videos/${k}.jpg`;
+// The Special cards (pop1..pop5) share the one "special" clip the restaurant uploads; the bundled pop clips are the fallback.
+const vSrc = k => (VIDS[k] && VIDS[k].src) || (k.startsWith('pop') && VIDS.special && VIDS.special.src) || `videos/${k}.mp4`;
+const vPoster = k => (VIDS[k] && VIDS[k].poster) || (k.startsWith('pop') && VIDS.special && VIDS.special.poster) || `videos/${k}.jpg`;
 
 /* Horizontal drag for touch AND mouse. Vertical movement is never captured, so the page always scrolls. */
 function dragScrub(el, { canStart, start, move, flag = el }) {
@@ -195,7 +196,8 @@ const kick = () => [vid, ...cards.filter(c => c.live).map(c => c.video)].forEach
 ['touchstart', 'pointerdown', 'wheel'].forEach(ev => addEventListener(ev, kick, { once: true, passive: true }));
 
 /* ================= POPULAR: 1 column x 6 rows, max 3 videos loaded at once ================= */
-const popItems = [...items].sort((a, b) => b.rating - a.rating).slice(0, 3);
+const chosenSpecial = (Array.isArray(FEAT.specialItemIds) ? FEAT.specialItemIds : []).map(byId).filter(Boolean);
+const popItems = chosenSpecial.length ? chosenSpecial : [...items].sort((a, b) => b.rating - a.rating).slice(0, 3);
 const row = $('#popRow');
 const MAX_LIVE = 3;
 const word = matchMedia('(pointer: coarse)').matches ? 'Swipe' : 'Drag';
@@ -354,13 +356,22 @@ function renderList() {
 $('#list').addEventListener('click', e => {
   const r = e.target.closest('.row'); if (!r) return;
   const id = +r.dataset.id;
-  if (e.target.closest('.add')) { basket.set(id, (basket.get(id) || 0) + 1); badge(); toast('Added to basket'); }
+  if (e.target.closest('.add')) addToBasket(id);
   else openItem(id);
 });
 renderList();
 
-/* ================= SIMULATED BASKET / SHEETS ================= */
-const basket = new Map();
+/* ================= ACCOUNT, BASKET, CHECKOUT, ORDER TRACKING =================
+   Guests keep the basket in this browser; a signed-in customer's basket is saved on the server (/api/cart) and a guest
+   basket is folded in at sign-in. Orders are placed by WhatsApp message to the restaurant's number. */
+const TYPES = CFG.orderTypes && CFG.orderTypes.length ? CFG.orderTypes : ['dine_in', 'pickup', 'delivery'];
+const TYPE_LABEL = { dine_in: 'Dine-in', pickup: 'Pickup', delivery: 'Delivery' };
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('bg_' + k); return v ? JSON.parse(v) : d; } catch (_) { return d; } },
+  set(k, v) { try { v == null ? localStorage.removeItem('bg_' + k) : localStorage.setItem('bg_' + k, JSON.stringify(v)); } catch (_) {} },
+};
+let session = store.get('auth', null), me = null, tableInfo = null;
+const basket = new Map((store.get('cart', []) || []).filter(([id]) => byId(id)));
 const sheet = $('#sheet'), cardEl = $('#sheetCard');
 const open = html => { $('#toast').classList.remove('show'); cardEl.innerHTML = html; sheet.classList.add('open'); cardEl.scrollTop = 0; };
 const close = () => sheet.classList.remove('open');
@@ -370,6 +381,59 @@ addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
 let toastT; function toast(m) { const t = $('#toast'); t.textContent = m; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 1600); }
 function badge() { const n = [...basket.values()].reduce((a, b) => a + b, 0); const b = $('#badge'); b.textContent = n; b.hidden = !n; }
 
+/* ---- API helper: adds the token, renews it when it is about to expire, retries once on 401 ---- */
+function signedOut() { session = null; me = null; store.set('auth', null); }
+async function refresh() {
+  if (!session) return false;
+  try {
+    const r = await fetch('/api/auth/refresh', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ refresh_token: session.refresh_token }) });
+    if (!r.ok) throw new Error('expired');
+    session = { ...session, ...(await r.json()) }; store.set('auth', session); return true;
+  } catch (_) { signedOut(); return false; }
+}
+async function api(path, { method = 'GET', body } = {}) {
+  if (session && session.expires_at && session.expires_at * 1000 - Date.now() < 60000) await refresh();
+  const call = () => fetch(path, { method, headers: { ...(body ? { 'content-type': 'application/json' } : {}), ...(session ? { authorization: 'Bearer ' + session.access_token } : {}) }, body: body ? JSON.stringify(body) : undefined });
+  let r = await call();
+  if (r.status === 401 && session && await refresh()) r = await call();
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { const e = new Error(j.error || 'Something went wrong'); e.status = r.status; e.data = j; throw e; }
+  return j;
+}
+
+/* ---- basket ---- */
+const saveCart = () => store.set('cart', [...basket]);
+function setQty(id, q) {
+  q > 0 ? basket.set(id, Math.min(50, q)) : basket.delete(id);
+  saveCart(); badge();
+  if (session) api('/api/cart', { method: 'POST', body: { menu_item_id: id, quantity: basket.get(id) || 0 } }).catch(() => {});
+}
+const addToBasket = id => { setQty(id, (basket.get(id) || 0) + 1); toast('Added to basket'); };
+const cartLines = () => [...basket].filter(([id]) => byId(id));
+const cartTotal = () => cartLines().reduce((s, [id, q]) => s + Math.round(byId(id).price * 100) * q, 0) / 100;
+async function pullCart() {
+  const c = await api('/api/cart/merge', { method: 'POST', body: { items: cartLines().map(([id, q]) => ({ menu_item_id: id, quantity: q })) } });
+  basket.clear(); c.items.forEach(l => { if (l.available && byId(l.menu_item_id)) basket.set(l.menu_item_id, l.quantity); });
+  saveCart(); badge();
+}
+async function loadMe() { try { me = await api('/api/auth/me'); } catch (_) { me = null; } return me; }
+async function startSession(tokens) {
+  session = { access_token: tokens.access_token, refresh_token: tokens.refresh_token, expires_at: tokens.expires_at }; store.set('auth', session);
+  await loadMe(); await pullCart().catch(() => {});
+}
+badge();
+if (session) loadMe().then(m => m && pullCart()).catch(() => {});
+const tt = new URLSearchParams(location.search).get('table');
+if (tt && /^[0-9a-f]{8,64}$/.test(tt)) fetch('/api/table/' + tt).then(r => r.ok ? r.json() : null).then(j => { if (j) { tableInfo = { token: tt, label: j.label }; toast('Table ' + j.label); } }).catch(() => {});
+
+/* ---- small form helpers ---- */
+const field = (id, label, o = {}) => `<label class="fl" for="${id}">${label}</label><input class="fi" id="${id}" type="${o.type || 'text'}" value="${esc(o.value || '')}" ${o.attrs || ''}>`;
+const val = id => { const el = $('#' + id, cardEl); return el ? el.value.trim() : ''; };
+const say = (t, ok) => { const m = $('#fmsg', cardEl); if (m) { m.textContent = t; m.className = 'fmsg' + (ok ? ' ok' : ''); } };
+const MSG = '<p class="fmsg" id="fmsg" role="status"></p>';
+async function run(t, fn) { t.disabled = true; try { await fn(); } catch (e) { say(e.message); } finally { t.disabled = false; } }
+
+/* ---- item sheet ---- */
 function loadViewer() {
   if (customElements.get('model-viewer') || document.getElementById('mvScript')) return;
   const sc = document.createElement('script');
@@ -384,32 +448,131 @@ function openItem(id) {
     loadViewer();   // only fetched the first time someone opens a 3D dish
     media = `<model-viewer src="${esc(modelSrc(i.model))}" poster="${img(i)}" alt="${esc(i.name)}" ar ar-modes="webxr scene-viewer quick-look" camera-controls auto-rotate shadow-intensity="1" environment-image="neutral" interaction-prompt="none"><button slot="ar-button" class="ar-btn">View on your table</button></model-viewer>`;
   }
-  open( `${media} <h3>${esc(i.name)}</h3> <p class="muted">${esc(i.desc)}</p> <div class="line"><span>${i.rating.toFixed(1)} ★ · ${i.cal} kcal</span><b style="color:var(--gold)">${money(i.price)}</b></div> <button class="btn" data-add="${i.id}">Add to basket</button> <button class="btn ghost" data-close>Close</button>` );
+  const facts = [i.rating ? i.rating.toFixed(1) + ' ★' : '', i.cal != null ? i.cal + ' kcal' : ''].filter(Boolean).join(' · ');
+  open(`${media} <h3>${esc(i.name)}</h3> <p class="muted">${esc(i.desc)}</p> <div class="line"><span>${facts}</span><b style="color:var(--gold)">${money(i.price)}</b></div> <button class="btn" data-add="${i.id}">Add to basket</button> <button class="btn ghost" data-close>Close</button>`);
 }
 
-function openBasket(done) {
-  if (done) return open( `<h3>Order sent ✓</h3><p class="muted">Demo order <b>${done}</b> — no real order was placed.</p><button class="btn" data-close>Done</button>` );
-  if (!basket.size) return open( `<h3>Your basket</h3><p class="muted">Nothing here yet. Add something from the menu.</p><button class="btn" data-goto="menu">Browse menu</button>` );
-  let total = 0;
-  const lines = [...basket].map(([id, q]) => { const i = byId(id); total += i.price * q; return  `<div class="line"><span>${esc(i.name)}<br><small style="color:var(--muted)">${money(i.price)}</small></span><span class="qty"><button data-dec="${id}">−</button> ${q} <button data-add="${id}" data-stay>+</button></span></div>` ; }).join('');
-  open( `<h3>Your basket</h3>${lines}<div class="total"><span>Total</span><span>${money(total)}</span></div>${FEAT.whatsappOrder ? `<button class="btn wa" data-wa>Order on WhatsApp</button>` : ''}<button class="btn ${FEAT.whatsappOrder ? 'ghost' : ''}" data-order>Place order (demo)</button><button class="btn ghost" data-close>Keep browsing</button>` );
+/* ---- basket and checkout ---- */
+function openBasket() {
+  const lines = cartLines();
+  if (!lines.length) return open(`<h3>Your basket</h3><p class="muted">Nothing here yet. Add something from the menu.</p><button class="btn" data-goto="menu">Browse menu</button>`);
+  const rows = lines.map(([id, q]) => { const i = byId(id); return `<div class="line"><span>${esc(i.name)}<br><small style="color:var(--muted)">${money(i.price)}</small></span><span class="qty"><button data-dec="${id}">−</button> ${q} <button data-add="${id}" data-stay>+</button></span></div>`; }).join('');
+  open(`<h3>Your basket</h3>${rows}<div class="total"><span>Total</span><span>${money(cartTotal())}</span></div>${session ? '' : '<p class="muted" style="margin:10px 0 0">Sign in to keep your basket on every device.</p>'}<button class="btn" data-checkout>Checkout</button><button class="btn ghost" data-close>Keep browsing</button>`);
 }
+const readForm = () => ({ name: val('c_name'), phone: val('c_phone'), addr: val('c_addr'), notes: val('c_notes'), table: val('c_table') });
+function openCheckout(prev = {}) {
+  if (!cartLines().length) return openBasket();
+  const p = (me && me.profile) || {};
+  const type = TYPES.includes(prev.type) ? prev.type : (tableInfo && TYPES.includes('dine_in') ? 'dine_in' : TYPES[0]);
+  const sub = cartTotal(), fee = type === 'delivery' ? Number(CFG.deliveryFee || 0) : 0;
+  open(`<h3>Checkout</h3>
+    <div class="seg">${TYPES.map(t => `<button data-type="${t}" class="${t === type ? 'on' : ''}">${esc(TYPE_LABEL[t] || t)}</button>`).join('')}</div>
+    ${type === 'dine_in' ? (tableInfo ? `<p class="muted" style="margin:12px 0 0">Table <b>${esc(tableInfo.label)}</b></p>` : field('c_table', 'Table number', { value: prev.table, attrs: 'maxlength="20"' })) : ''}
+    ${field('c_name', 'Your name', { value: prev.name != null ? prev.name : p.display_name, attrs: 'autocomplete="name" maxlength="80"' })}
+    ${field('c_phone', 'Phone' + (type === 'dine_in' ? ' (optional)' : ''), { type: 'tel', value: prev.phone != null ? prev.phone : p.phone, attrs: 'autocomplete="tel" maxlength="20"' })}
+    ${type === 'delivery' ? field('c_addr', 'Delivery address', { value: prev.addr != null ? prev.addr : p.address, attrs: 'autocomplete="street-address" maxlength="300"' }) : ''}
+    ${field('c_notes', 'Notes (optional)', { value: prev.notes, attrs: 'maxlength="300"' })}
+    <div class="line"><span>Subtotal</span><span>${money(sub)}</span></div>${fee ? `<div class="line"><span>Delivery</span><span>${money(fee)}</span></div>` : ''}
+    <div class="total"><span>Total</span><span>${money(sub + fee)}</span></div>${MSG}
+    ${waEnabled() ? '<button class="btn wa" data-act="place">Order on WhatsApp</button>' : '<p class="fmsg">Online ordering is not available right now. Please contact the restaurant.</p>'}<button class="btn ghost" data-act="basket">Back to basket</button>`);
+}
+const waNumber = () => String(CFG.whatsappNumber || '').replace(/\D/g, '');
+const waEnabled = () => !!waNumber() && FEAT.whatsappOrder !== false;
+function clearBasket() {
+  basket.clear(); saveCart(); badge();
+  if (session) api('/api/cart', { method: 'DELETE' }).catch(() => {});
+}
+// Orders are placed by WhatsApp message to the restaurant's own number (CFG.whatsappNumber, set per restaurant in admin).
+function placeOrder() {
+  const f = readForm(), type = cardEl.querySelector('[data-type].on').dataset.type;
+  if (!f.name) throw new Error('Your name is required');
+  if (type !== 'dine_in' && !f.phone) throw new Error('A phone number is required');
+  if (f.phone && !/^[0-9+()\-\s]{7,20}$/.test(f.phone)) throw new Error('That phone number does not look right');
+  if (type === 'delivery' && !f.addr) throw new Error('A delivery address is required');
+  const table = type === 'dine_in' ? (tableInfo ? tableInfo.label : f.table) : '';
+  if (type === 'dine_in' && !table) throw new Error('Table number is required for dine-in');
+  const lines = cartLines(), sub = cartTotal(), fee = type === 'delivery' ? Number(CFG.deliveryFee || 0) : 0;
+  const text = [
+    `${CFG.brand || 'New'} order`,
+    `Type: ${TYPE_LABEL[type] || type}${table ? ` (table ${table})` : ''}`,
+    `Name: ${f.name}`,
+    ...(f.phone ? [`Phone: ${f.phone}`] : []),
+    ...(type === 'delivery' ? [`Address: ${f.addr}`] : []),
+    '',
+    ...lines.map(([id, q]) => `${q} x ${byId(id).name} - ${money(byId(id).price * q)}`),
+    '',
+    `Subtotal: ${money(sub)}`,
+    ...(fee ? [`Delivery: ${money(fee)}`] : []),
+    `Total: ${money(sub + fee)}`,
+    ...(f.notes ? ['', `Notes: ${f.notes}`] : []),
+  ].join('\n');
+  const url = `https://wa.me/${waNumber()}?text=${encodeURIComponent(text)}`;
+  if (!window.open(url, '_blank', 'noopener')) location.href = url;   // popup blocked: go there in this tab
+  open(`<h3>Almost done</h3><p class="muted">WhatsApp opened with your order. Press <b>Send</b> there to place it with ${esc(CFG.brand || 'the restaurant')}.</p><a class="btn wa" href="${esc(url)}" target="_blank" rel="noopener">Open WhatsApp again</a><button class="btn ghost" data-act="sent">I've sent it</button><button class="btn ghost" data-act="basket">Back to basket</button>`);
+}
+
+/* ---- account ---- */
+async function openAccount(view = 'in') {
+  if (session && !me) await loadMe();
+  if (session && me) return openProfile();
+  const up = view === 'up';
+  if (view === 'forgot') return open(`<h3>Reset password</h3><p class="muted">We'll email you a link to choose a new one.</p>${field('f_email', 'Email', { type: 'email', attrs: 'autocomplete="email"' })}${MSG}<button class="btn" data-act="forgot">Send reset link</button><button class="btn ghost" data-acct="in">Back</button>`);
+  open(`<h3>${up ? 'Create account' : 'Welcome back'}</h3>
+    <div class="seg"><button data-acct="in" class="${up ? '' : 'on'}">Sign in</button><button data-acct="up" class="${up ? 'on' : ''}">Create account</button></div>
+    ${up ? field('f_name', 'Name', { attrs: 'autocomplete="name" maxlength="80"' }) : ''}
+    ${field('f_email', 'Email', { type: 'email', attrs: 'autocomplete="email"' })}
+    ${field('f_pass', 'Password', { type: 'password', attrs: `autocomplete="${up ? 'new' : 'current'}-password" maxlength="72" placeholder="At least 8 characters"` })}${MSG}
+    <button class="btn" data-act="${up ? 'up' : 'in'}">${up ? 'Create account' : 'Sign in'}</button>${up ? '' : '<button class="link" data-acct="forgot">Forgot password?</button>'}<button class="btn ghost" data-close>Close</button>`);
+}
+function openProfile() {
+  const p = me.profile || {};
+  open(`<h3>${esc(p.display_name || 'My account')}</h3><p class="muted">${esc(me.email)}</p>
+    ${field('p_name', 'Name', { value: p.display_name, attrs: 'maxlength="80"' })}${field('p_phone', 'Phone', { type: 'tel', value: p.phone, attrs: 'maxlength="30"' })}${field('p_addr', 'Delivery address', { value: p.address, attrs: 'maxlength="300"' })}${MSG}
+    <button class="btn" data-act="save">Save details</button>${me.staff ? '<a class="btn ghost" href="/admin">Admin</a>' : ''}<button class="btn ghost" data-act="out">Sign out</button>`);
+}
+const post = (path, body) => api(path, { method: 'POST', body });
+async function afterSignIn() { toast('Signed in'); return basket.size ? openBasket() : openProfile(); }
+const ACTS = {
+  async in() { const j = await post('/api/auth/login', { email: val('f_email'), password: $('#f_pass', cardEl).value }); await startSession(j); await afterSignIn(); },
+  async up() {
+    const email = val('f_email'), password = $('#f_pass', cardEl).value;
+    await post('/api/auth/register', { email, password, display_name: val('f_name') });
+    await startSession(await post('/api/auth/login', { email, password })); await afterSignIn();
+  },
+  async forgot() { await post('/api/auth/request-password-reset', { email: val('f_email') }); say('If that email has an account, a reset link is on its way.', true); },
+  async save() { const j = await api('/api/auth/me', { method: 'PATCH', body: { display_name: val('p_name'), phone: val('p_phone'), address: val('p_addr') } }); me.profile = j.profile; say('Saved', true); },
+  async out() { signedOut(); basket.clear(); saveCart(); badge(); close(); toast('Signed out'); },
+  async place() { placeOrder(); },
+  async sent() { clearBasket(); close(); toast('Thanks! Your order is on its way'); },
+  async basket() { openBasket(); },
+};
 
 cardEl.addEventListener('click', e => {
   const t = e.target.closest('button'); if (!t) return;
-  if (t.dataset.add) { const id = +t.dataset.add; basket.set(id, (basket.get(id) || 0) + 1); badge(); if ('stay' in t.dataset) openBasket(); else { close(); toast('Added to basket'); } }
-  else if (t.dataset.dec) { const id = +t.dataset.dec, q = basket.get(id) - 1; q > 0 ? basket.set(id, q) : basket.delete(id); badge(); openBasket(); }
-  else if ('wa' in t.dataset) {
-    let total = 0;
-    const lines = [...basket].map(([id, q]) => { const i = byId(id); total += i.price * q; return `${q} x ${i.name} - ${money(i.price * q)}`; });
-    const text = `${CFG.brand || 'Order'} order:\n${lines.join('\n')}\nTotal: ${money(total)}`;
-    const num = String(CFG.whatsappNumber || '').replace(/\D/g, '');
-    window.open(`https://wa.me/${num}?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
-  }
-  else if ('order' in t.dataset) { const d = new Date(), p = n => String(n).padStart(2, '0'); const no = `RH-${p(d.getFullYear() % 100)}${p(d.getMonth() + 1)}${p(d.getDate())}-${String(Math.floor(Math.random() * 9000) + 1000)}` ; basket.clear(); badge(); openBasket(no); }
-  else if (t.dataset.goto) { close(); go(t.dataset.goto); }
-  else if ('close' in t.dataset) close();
+  const d = t.dataset;
+  if (d.add) { const id = +d.add; setQty(id, (basket.get(id) || 0) + 1); if ('stay' in d) openBasket(); else { close(); toast('Added to basket'); } }
+  else if (d.dec) { const id = +d.dec; setQty(id, (basket.get(id) || 0) - 1); openBasket(); }
+  else if ('checkout' in d) openCheckout();
+  else if (d.type) openCheckout({ ...readForm(), type: d.type });
+  else if (d.act) run(t, ACTS[d.act]);
+  else if (d.acct) openAccount(d.acct);
+  else if (d.goto) { close(); go(d.goto); }
+  else if ('close' in d) close();
 });
+// Enter submits the form's main button.
+cardEl.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('input')) { const b = cardEl.querySelector('.btn[data-act]'); if (b) b.click(); } });
+
+/* ---- footer: address, phone, language ---- */
+(() => {
+  const info = $('#info'), bits = [], safe = /^https?:\/\//i;
+  if (CFG.address) bits.push(CFG.mapUrl && safe.test(CFG.mapUrl) ? `<a href="${esc(CFG.mapUrl)}" target="_blank" rel="noopener">${esc(CFG.address)}</a>` : esc(CFG.address));
+  [CFG.phone, CFG.phone2].filter(Boolean).forEach(p => bits.push(`<a href="tel:${esc(String(p).replace(/[^\d+]/g, ''))}">${esc(p)}</a>`));
+  info.innerHTML = bits.map(b => `<p>${b}</p>`).join('');
+  if ((CFG.languages || []).length > 1) {
+    info.insertAdjacentHTML('beforeend', `<label class="sort"><span>Language</span><select id="lang">${CFG.languages.map(l => `<option value="${esc(l)}"${l === CFG.lang ? ' selected' : ''}>${esc(l.toUpperCase())}</option>`).join('')}</select></label>`);
+    $('#lang').addEventListener('change', e => { const u = new URL(location.href); u.searchParams.set('lang', e.target.value); location.href = u.href; });
+  }
+})();
 
 /* ================= TOP PICK: tap "View in 3D" to swap the picture for the live model =================
    The server only renders this section when the restaurant keeps it on and has a model. The (large) 3D file and the
@@ -438,6 +601,7 @@ if (waNum) {
 /* ================= FOOTER NAV ================= */
 function go(tab) {
   if (tab === 'basket') return openBasket();
+  if (tab === 'account') return openAccount();
   if (tab === 'home') return scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' });
   $('#' + tab).scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
 }

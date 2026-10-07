@@ -176,3 +176,21 @@ body{margin:0;background:#070606;color:var(--text);font-family:'Poppins',system-
 /* the AI chat bubble (assistant.js) moves up so the two never overlap */
 body.has-wa .ai-fab{bottom:calc(var(--tabs) + 82px + env(safe-area-inset-bottom,0px))}
 body.has-wa .ai-panel{bottom:calc(var(--tabs) + 142px + env(safe-area-inset-bottom,0px))}
+
+/* ===== forms, account, orders, footer info ===== */
+.seg{display:flex;gap:6px;margin:10px 0 4px}
+.seg button{flex:1;background:var(--surface);color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:8px 6px;font:600 12px 'Poppins',sans-serif;cursor:pointer}
+.seg button.on{background:var(--gold);color:#1a1408;border-color:var(--gold)}
+.fl{display:block;font-size:12px;color:var(--gold);font-weight:600;margin:12px 0 6px}
+.fi{width:100%;background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:11px 12px;font:500 16px 'Poppins',sans-serif}
+.fi:focus{outline:2px solid var(--gold);outline-offset:1px}
+.fmsg{min-height:18px;margin:10px 0 0;font-size:13px;color:#ff8a7a}
+.fmsg.ok{color:#4caf7d}
+.link{display:block;width:100%;background:none;border:0;color:var(--gold);font:500 13px 'Poppins',sans-serif;margin-top:12px;cursor:pointer;text-decoration:underline}
+a.btn{display:block;text-align:center;text-decoration:none}
+.btn:disabled{opacity:.6;cursor:default}
+.st{font-size:11px;font-weight:700;text-transform:capitalize;color:var(--gold)}
+.info{text-align:center;color:var(--muted);font-size:12px;padding:24px 16px 8px}
+.info p{margin:0 0 6px}
+.info a{color:var(--gold);text-decoration:none}
+.info .sort{justify-content:center;margin-top:10px}
