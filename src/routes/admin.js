@@ -9,12 +9,14 @@
 //   PUT  /api/admin/integrations/meta
 //   PUT  /api/admin/integrations/ai
 //   POST /api/admin/integrations/ai/test   try the assistant from the admin page
+//   /api/admin/media/*                     hero + special videos and the five Special dishes (see media.js)
 
 const express = require('express');
 const multer = require('multer');
 const { mask } = require('../lib/secrets');
 const { templateCsv, planImport, loadExisting, applyImport, exportCsv } = require('../lib/menuImport');
 const { defaultsFor, CHANNELS } = require('../lib/assistant');
+const { createMediaRouter } = require('./media');
 
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const str = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : undefined);
@@ -22,12 +24,15 @@ const ORDER_TYPES = ['dine_in', 'pickup', 'delivery'];
 const FEATURE_KEYS = ['ar3d', 'whatsappOrder'];     // "assistant" follows the AI switch, see PUT /integrations/ai
 const AI_MODEL_RE = /^[a-z0-9][a-z0-9.\-_]{2,60}$/i;
 
-function createAdminRouter({ supabase, auth, secretBox, assistant, onTenantChanged = () => {}, onMenuChanged = () => {} }) {
+function createAdminRouter({ supabase, auth, secretBox, assistant, onTenantChanged = () => {}, onMenuChanged = () => {}, mediaOptions = {} }) {
   const router = express.Router();
   router.use((req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
   router.use(auth.requireStaff(['owner', 'admin']));
 
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 1024 * 1024, files: 1 } });
+
+  // ---- homepage videos ---------------------------------------------------
+  router.use('/media', createMediaRouter({ supabase, onMediaChanged: onMenuChanged, ...mediaOptions }));
 
   // ---- menu CSV ----------------------------------------------------------
   const sendCsv = (res, name, body) => res
