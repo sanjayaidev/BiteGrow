@@ -1,37 +1,276 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Admin · Videos</title>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Restaurant admin</title>
 <style>
-body{background:#121110;color:#f4efe6;font-family:system-ui,sans-serif;padding:20px;max-width:560px;margin:auto}
-h1{font-size:20px}.card{background:#1c1a18;border:1px solid #2c2925;border-radius:12px;padding:14px;margin:12px 0}
-.card h2{margin:0 0 4px;font-size:15px}.card p{margin:0 0 10px;color:#a99f8f;font-size:12px}
-img{width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:8px;background:#000;margin-bottom:10px}
-button{background:#e3b23c;color:#1a1408;border:0;border-radius:8px;padding:9px 16px;font-weight:700;cursor:pointer}
-button:disabled{opacity:.5}.msg{font-size:12px;margin-top:8px;white-space:pre-wrap}.ok{color:#7ad17a}.bad{color:#ff8a7a}
-</style></head><body>
-<h1>Replace videos</h1>
-<p style="color:#a99f8f;font-size:13px">Upload a clip; the server converts it with ffmpeg. Hero is trimmed to 30 s, popular clips to 12 s. Both play by scroll position, not autoplay.</p>
-<div id="cards"></div>
-<p><a href="/" style="color:#e3b23c">← Back to site</a></p>
+:root{--bg:#121110;--surface:#1c1a18;--field:#151413;--line:#2c2925;--gold:#e3b23c;--text:#f4efe6;--muted:#a99f8f;--bad:#ff8a7a;--ok:#7ad17a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif}
+main{max-width:720px;margin:0 auto;padding:20px 16px 80px}
+h1{font-size:20px;margin:0}h2{font-size:16px;margin:0 0 4px}
+p{margin:0 0 12px;color:var(--muted);font-size:13px}
+header{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px}
+header a,.link{color:var(--gold);background:none;border:0;padding:0;font:inherit;font-size:13px;cursor:pointer;text-decoration:underline}
+nav{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:18px;overflow-x:auto}
+nav button{background:none;border:0;border-bottom:2px solid transparent;color:var(--muted);padding:10px 14px;font:inherit;cursor:pointer;white-space:nowrap}
+nav button[aria-selected=true]{color:var(--text);border-bottom-color:var(--gold)}
+section{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px}
+label{display:block;font-size:13px;margin:12px 0 4px}
+label small{color:var(--muted);font-weight:400}
+input[type=text],input[type=email],input[type=password],input[type=number],input[type=url],input[type=file],textarea,select{width:100%;background:var(--field);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:9px 10px;font:inherit}
+textarea{min-height:110px;resize:vertical}
+input:focus-visible,textarea:focus-visible,select:focus-visible,button:focus-visible,a:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.check{display:flex;gap:8px;align-items:center;margin:8px 0;font-size:14px}.check input{width:auto}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:14px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}@media(max-width:560px){.grid{grid-template-columns:1fr}}
+button.primary{background:var(--gold);color:#1a1408;border:0;border-radius:8px;padding:9px 16px;font-weight:700;cursor:pointer}
+button.quiet{background:none;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:9px 16px;cursor:pointer}
+button:disabled{opacity:.5;cursor:default}
+.msg{margin-top:10px;font-size:13px;white-space:pre-wrap}.ok{color:var(--ok)}.bad{color:var(--bad)}
+.errs{margin:8px 0 0;padding-left:18px;font-size:13px;color:var(--bad)}
+code{background:var(--field);border:1px solid var(--line);border-radius:6px;padding:2px 6px;font-size:12px;word-break:break-all}
+.chat{background:var(--field);border:1px solid var(--line);border-radius:8px;padding:10px;min-height:60px;margin-top:10px;white-space:pre-wrap;font-size:14px}
+[hidden]{display:none!important}
+</style></head><body><main>
+
+<section id="login" hidden>
+  <h1>Sign in to your restaurant admin</h1>
+  <p>Use the owner or admin account for this restaurant.</p>
+  <label for="em">Email</label><input id="em" type="email" autocomplete="username">
+  <label for="pw">Password</label><input id="pw" type="password" autocomplete="current-password">
+  <div class="row"><button class="primary" id="go">Sign in</button></div>
+  <div class="msg" id="loginMsg" role="alert"></div>
+</section>
+
+<div id="app" hidden>
+<header><h1 id="title">Restaurant admin</h1><span><a href="/">View site</a> · <button class="link" id="out">Sign out</button></span></header>
+<nav role="tablist" id="tabs">
+  <button role="tab" data-t="menu" aria-selected="true">Menu</button>
+  <button role="tab" data-t="settings" aria-selected="false">Restaurant</button>
+  <button role="tab" data-t="meta" aria-selected="false">Meta</button>
+  <button role="tab" data-t="ai" aria-selected="false">Assistant</button>
+</nav>
+
+<div data-p="menu">
+<section>
+  <h2>Import menu from CSV</h2>
+  <p>Rows are matched by item name: matches are updated, new names are added, and new categories are created. Nothing is changed if any row has a problem.</p>
+  <div class="row" style="margin-top:0"><button class="quiet" data-dl="menu/template.csv" data-name="menu-template.csv">Download blank template</button><button class="quiet" data-dl="menu/export.csv" data-name="menu.csv">Export current menu</button></div>
+  <label for="csv">CSV file <small>(up to 1 MB)</small></label><input id="csv" type="file" accept=".csv,text/csv">
+  <div class="row"><button class="quiet" id="check">Check file</button><button class="primary" id="imp">Import menu</button></div>
+  <div class="msg" id="impMsg" role="status"></div><ul class="errs" id="impErrs"></ul>
+</section>
+</div>
+
+<div data-p="settings" hidden>
+<section>
+  <h2>Restaurant details</h2>
+  <div class="grid">
+    <div><label for="s_brand">Name shown on the site</label><input id="s_brand" type="text" maxlength="80"></div>
+    <div><label for="s_title">Browser tab title</label><input id="s_title" type="text" maxlength="120"></div>
+    <div><label for="s_phone">Phone</label><input id="s_phone" type="text" maxlength="30"></div>
+    <div><label for="s_phone2">Second phone</label><input id="s_phone2" type="text" maxlength="30"></div>
+    <div><label for="s_wa">WhatsApp number <small>(country code, digits)</small></label><input id="s_wa" type="text" inputmode="numeric"></div>
+    <div><label for="s_fee">Delivery fee</label><input id="s_fee" type="number" min="0" step="0.01"></div>
+  </div>
+  <label for="s_addr">Address</label><input id="s_addr" type="text" maxlength="300">
+  <label for="s_map">Map link <small>(https://)</small></label><input id="s_map" type="url">
+  <label>Order types</label>
+  <div class="check"><input type="checkbox" id="o_dine_in"><label for="o_dine_in" style="margin:0">Dine-in</label></div>
+  <div class="check"><input type="checkbox" id="o_pickup"><label for="o_pickup" style="margin:0">Pickup</label></div>
+  <div class="check"><input type="checkbox" id="o_delivery"><label for="o_delivery" style="margin:0">Delivery</label></div>
+  <div class="check"><input type="checkbox" id="f_wa"><label for="f_wa" style="margin:0">Show "Order on WhatsApp"</label></div>
+  <div class="check"><input type="checkbox" id="f_ar"><label for="f_ar" style="margin:0">Show 3D / AR viewer</label></div>
+  <div class="row"><button class="primary" id="saveS">Save details</button></div><div class="msg" id="sMsg" role="status"></div>
+</section>
+</div>
+
+<div data-p="meta" hidden>
+<section>
+  <h2>WhatsApp, Instagram and Messenger</h2>
+  <p>Customers who message these accounts get answers from your assistant. Create a Meta app, add the webhook below, then paste the IDs and a permanent access token here.</p>
+  <label>Webhook URL <small>(paste into Meta, with the verify token set on the server)</small></label><code id="m_hook"></code>
+  <div class="msg" id="m_ready"></div>
+  <div class="check"><input type="checkbox" id="m_on"><label for="m_on" style="margin:0">Reply to messages from Meta</label></div>
+  <div class="grid">
+    <div><label for="m_wa">WhatsApp phone number ID</label><input id="m_wa" type="text" inputmode="numeric"></div>
+    <div><label for="m_page">Facebook Page ID</label><input id="m_page" type="text" inputmode="numeric"></div>
+    <div><label for="m_ig">Instagram account ID</label><input id="m_ig" type="text" inputmode="numeric"></div>
+    <div><label for="m_px">Meta Pixel ID <small>(optional, tracks site visits)</small></label><input id="m_px" type="text" inputmode="numeric"></div>
+  </div>
+  <label for="m_tok">Access token <small id="m_tokHint"></small></label><input id="m_tok" type="password" autocomplete="off" placeholder="Leave empty to keep the saved token">
+  <div class="row"><button class="primary" id="saveM">Save Meta settings</button><button class="quiet" id="clrM">Remove saved token</button></div><div class="msg" id="mMsg" role="status"></div>
+</section>
+</div>
+
+<div data-p="ai" hidden>
+<section>
+  <h2>Assistant</h2>
+  <p>Answers questions about your menu and sends customers to order. It cannot take payment or confirm orders.</p>
+  <div class="check"><input type="checkbox" id="a_on"><label for="a_on" style="margin:0">Assistant is on</label></div>
+  <label>Where it replies</label>
+  <div class="check"><input type="checkbox" id="c_web"><label for="c_web" style="margin:0">Website chat</label></div>
+  <div class="check"><input type="checkbox" id="c_whatsapp"><label for="c_whatsapp" style="margin:0">WhatsApp</label></div>
+  <div class="check"><input type="checkbox" id="c_instagram"><label for="c_instagram" style="margin:0">Instagram</label></div>
+  <div class="check"><input type="checkbox" id="c_facebook"><label for="c_facebook" style="margin:0">Messenger</label></div>
+  <label for="a_greet">Greeting <small>(first message on the website)</small></label><input id="a_greet" type="text" maxlength="200">
+  <label for="a_persona">Your instructions <small>(opening hours, tone, policies, dishes to recommend)</small></label><textarea id="a_persona" maxlength="2000"></textarea>
+  <div class="grid">
+    <div><label for="a_phone">Phone to give when it cannot help</label><input id="a_phone" type="text" maxlength="30"></div>
+    <div><label for="a_limit">Replies per day</label><input id="a_limit" type="number" min="0" max="100000"></div>
+    <div><label for="a_model">Model</label><input id="a_model" type="text"></div>
+    <div><label for="a_key">API key <small id="a_keyHint"></small></label><input id="a_key" type="password" autocomplete="off" placeholder="Leave empty to keep the saved key"></div>
+  </div>
+  <div class="row"><button class="primary" id="saveA">Save assistant</button></div><div class="msg" id="aMsg" role="status"></div>
+</section>
+<section>
+  <h2>Try it</h2>
+  <p>Saved settings only. Uses one of today's replies.</p>
+  <label for="t_msg">Message</label><input id="t_msg" type="text" maxlength="500" placeholder="What vegetarian dishes do you have?">
+  <div class="row"><button class="quiet" id="t_go">Send test message</button></div><div class="chat" id="t_out" aria-live="polite"></div>
+</section>
+</div>
+</div>
+
 <script>
-const slots=[['hero','Hero (scroll video)','Short clip, 10–20 s works best'],['pop1','Popular · card 1','Scrubs with scroll in a 16:9 card; 5–10 s works best'],['pop2','Popular · card 2',''],['pop3','Popular · card 3','']];
-const root=document.getElementById('cards');
-slots.forEach(([id,t,h])=>{
-  const c=document.createElement('div');c.className='card';
-  c.innerHTML=`<h2>${t}</h2><p>${h}</p><img id="i-${id}" src="/videos/${id}.jpg?${Date.now()}" alt=""><input type="file" accept="video/*"> <button>Upload</button><div class="msg"></div>`;
-  root.appendChild(c);
-  const btn=c.querySelector('button'),file=c.querySelector('input'),msg=c.querySelector('.msg');
-  btn.onclick=async()=>{
-    if(!file.files[0]){msg.className='msg bad';msg.textContent='Choose a file first';return}
-    const fd=new FormData();fd.append('video',file.files[0]);
-    btn.disabled=true;msg.className='msg';msg.textContent='Uploading and encoding… (can take a minute)';
-    try{
-      const r=await fetch('/api/upload/'+id,{method:'POST',body:fd});const j=await r.json();
-      if(!r.ok)throw new Error((j.error||'Failed')+(j.detail?'\n'+j.detail:''));
-      msg.className='msg ok';msg.textContent='Done. Refresh the site to see it (only this clip is downloaded again).';
-      document.getElementById('i-'+id).src='/videos/'+id+'.jpg?'+j.v;
-    }catch(e){msg.className='msg bad';msg.textContent=e.message}
-    btn.disabled=false;
-  };
+const $ = (id) => document.getElementById(id);
+const store = { get: (k) => { try { return sessionStorage.getItem(k) || ''; } catch (e) { return ''; } }, set: (k, v) => { try { v ? sessionStorage.setItem(k, v) : sessionStorage.removeItem(k); } catch (e) {} } };
+const say = (el, text, ok) => { el.className = 'msg ' + (ok === true ? 'ok' : ok === false ? 'bad' : ''); el.textContent = text; };
+
+async function refresh() {
+  const rt = store.get('bg_rt'); if (!rt) return false;
+  const r = await fetch('/api/auth/refresh', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ refresh_token: rt }) });
+  if (!r.ok) return false;
+  const j = await r.json(); store.set('bg_at', j.access_token); store.set('bg_rt', j.refresh_token); return true;
+}
+async function api(path, opts = {}, retry = true) {
+  const headers = { ...(opts.headers || {}), authorization: 'Bearer ' + store.get('bg_at') };
+  if (opts.json !== undefined) { headers['content-type'] = 'application/json'; opts = { ...opts, body: JSON.stringify(opts.json) }; }
+  const r = await fetch('/api/admin/' + path, { ...opts, headers });
+  if (r.status === 401 && retry && await refresh()) return api(path, opts, false);
+  if (r.status === 401) { signOut(); throw new Error('Your session ended. Sign in again.'); }
+  return r;
+}
+async function json(path, opts) {
+  const r = await api(path, opts); const j = await r.json().catch(() => ({}));
+  if (!r.ok) { const e = new Error(j.error || 'Something went wrong'); e.body = j; throw e; }
+  return j;
+}
+
+function signOut() { store.set('bg_at', ''); store.set('bg_rt', ''); $('app').hidden = true; $('login').hidden = false; }
+
+async function start() {
+  if (!store.get('bg_at')) return signOut();
+  try {
+    let r = await fetch('/api/auth/me', { headers: { authorization: 'Bearer ' + store.get('bg_at') } });
+    if (r.status === 401 && await refresh()) r = await fetch('/api/auth/me', { headers: { authorization: 'Bearer ' + store.get('bg_at') } });
+    if (!r.ok) return signOut();
+    const me = await r.json();
+    if (!['owner', 'admin', 'super'].includes(me.staff)) { signOut(); say($('loginMsg'), 'This account is not an owner or admin of this restaurant.', false); return; }
+  } catch (e) { return signOut(); }
+  $('login').hidden = true; $('app').hidden = false;
+  loadSettings(); loadIntegrations();
+  const cfg = await fetch('/api/config').then((r) => r.json()).catch(() => ({})); if (cfg.brand) $('title').textContent = cfg.brand + ' admin';
+}
+
+$('go').onclick = async () => {
+  say($('loginMsg'), 'Signing in…');
+  try {
+    const r = await fetch('/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: $('em').value, password: $('pw').value }) });
+    const j = await r.json(); if (!r.ok) throw new Error(j.error || 'Could not sign in');
+    store.set('bg_at', j.access_token); store.set('bg_rt', j.refresh_token); $('pw').value = ''; say($('loginMsg'), ''); start();
+  } catch (e) { say($('loginMsg'), e.message, false); }
+};
+$('pw').onkeydown = (e) => { if (e.key === 'Enter') $('go').click(); };
+$('out').onclick = signOut;
+
+$('tabs').onclick = (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  document.querySelectorAll('#tabs button').forEach((x) => x.setAttribute('aria-selected', x === b));
+  document.querySelectorAll('[data-p]').forEach((p) => { p.hidden = p.dataset.p !== b.dataset.t; });
+};
+
+// ---- menu CSV
+document.querySelectorAll('[data-dl]').forEach((b) => b.onclick = async () => {
+  try {
+    const r = await api(b.dataset.dl); if (!r.ok) throw new Error('Download failed');
+    const a = document.createElement('a'); a.href = URL.createObjectURL(await r.blob()); a.download = b.dataset.name; a.click(); URL.revokeObjectURL(a.href);
+  } catch (e) { say($('impMsg'), e.message, false); }
 });
-</script></body></html>
+async function importCsv(dry) {
+  const f = $('csv').files[0]; $('impErrs').replaceChildren();
+  if (!f) return say($('impMsg'), 'Choose a CSV file first.', false);
+  const fd = new FormData(); fd.append('file', f);
+  say($('impMsg'), dry ? 'Checking…' : 'Importing…');
+  try {
+    const j = await json('menu/import' + (dry ? '?dry_run=1' : ''), { method: 'POST', body: fd });
+    say($('impMsg'), (dry ? 'File is valid. If you import it: ' : 'Imported. ') + `${j.created} new, ${j.updated} updated, ${j.categories_created} new categories.`, true);
+  } catch (e) {
+    say($('impMsg'), e.message + (e.body && e.body.error_count > 50 ? ` Showing the first 50 of ${e.body.error_count}.` : ''), false);
+    for (const x of (e.body && e.body.errors) || []) { const li = document.createElement('li'); li.textContent = `Line ${x.line}: ${x.message}`; $('impErrs').appendChild(li); }
+  }
+}
+$('check').onclick = () => importCsv(true); $('imp').onclick = () => importCsv(false);
+
+// ---- restaurant settings
+const OT = ['dine_in', 'pickup', 'delivery'];
+async function loadSettings() {
+  try {
+    const s = await json('settings');
+    $('s_brand').value = s.brand_name; $('s_title').value = s.page_title; $('s_phone').value = s.phone; $('s_phone2').value = s.phone2;
+    $('s_wa').value = s.whatsapp_number; $('s_fee').value = s.delivery_fee; $('s_addr').value = s.address; $('s_map').value = s.map_url;
+    OT.forEach((t) => $('o_' + t).checked = s.order_types.includes(t));
+    $('f_wa').checked = !!s.features.whatsappOrder; $('f_ar').checked = !!s.features.ar3d;
+  } catch (e) { say($('sMsg'), e.message, false); }
+}
+$('saveS').onclick = async () => {
+  say($('sMsg'), 'Saving…');
+  try {
+    await json('settings', { method: 'PUT', json: {
+      brand_name: $('s_brand').value, page_title: $('s_title').value, phone: $('s_phone').value, phone2: $('s_phone2').value,
+      whatsapp_number: $('s_wa').value, delivery_fee: $('s_fee').value, address: $('s_addr').value, map_url: $('s_map').value,
+      order_types: OT.filter((t) => $('o_' + t).checked), features: { whatsappOrder: $('f_wa').checked, ar3d: $('f_ar').checked },
+    } });
+    say($('sMsg'), 'Saved. The site shows the change on the next page load.', true);
+  } catch (e) { say($('sMsg'), e.message, false); }
+};
+
+// ---- Meta + assistant
+const CH = ['web', 'whatsapp', 'instagram', 'facebook'];
+async function loadIntegrations() {
+  try {
+    const { meta, ai } = await json('integrations');
+    $('m_hook').textContent = meta.webhook_url; $('m_on').checked = meta.enabled;
+    $('m_wa').value = meta.whatsapp_phone_id; $('m_page').value = meta.page_id; $('m_ig').value = meta.instagram_id; $('m_px').value = meta.pixel_id;
+    $('m_tokHint').textContent = meta.access_token ? `(saved: ${meta.access_token})` : '(none saved)';
+    say($('m_ready'), meta.webhook_ready ? '' : 'The server still needs META_APP_SECRET and META_VERIFY_TOKEN before Meta can deliver messages.', meta.webhook_ready ? undefined : false);
+    $('a_on').checked = ai.enabled; $('a_greet').value = ai.greeting; $('a_persona').value = ai.persona; $('a_phone').value = ai.handoff_phone;
+    $('a_limit').value = ai.daily_limit; $('a_model').value = ai.model; CH.forEach((c) => $('c_' + c).checked = ai.channels.includes(c));
+    $('a_keyHint').textContent = ai.api_key ? `(saved: ${ai.api_key})` : ai.server_key_available ? '(using the platform key)' : '(none saved)';
+  } catch (e) { say($('aMsg'), e.message, false); }
+}
+async function saveMeta(extra, btnMsg) {
+  say($('mMsg'), 'Saving…');
+  try {
+    await json('integrations/meta', { method: 'PUT', json: { enabled: $('m_on').checked, whatsapp_phone_id: $('m_wa').value, page_id: $('m_page').value, instagram_id: $('m_ig').value, pixel_id: $('m_px').value, access_token: $('m_tok').value, ...extra } });
+    $('m_tok').value = ''; await loadIntegrations(); say($('mMsg'), btnMsg, true);
+  } catch (e) { say($('mMsg'), e.message, false); }
+}
+$('saveM').onclick = () => saveMeta({}, 'Saved.');
+$('clrM').onclick = () => { $('m_on').checked = false; saveMeta({ access_token: null, enabled: false }, 'Token removed and Meta replies turned off.'); };
+$('saveA').onclick = async () => {
+  say($('aMsg'), 'Saving…');
+  try {
+    await json('integrations/ai', { method: 'PUT', json: { enabled: $('a_on').checked, channels: CH.filter((c) => $('c_' + c).checked), greeting: $('a_greet').value, persona: $('a_persona').value, handoff_phone: $('a_phone').value, daily_limit: $('a_limit').value, model: $('a_model').value, api_key: $('a_key').value } });
+    $('a_key').value = ''; await loadIntegrations(); say($('aMsg'), 'Saved.', true);
+  } catch (e) { say($('aMsg'), e.message, false); }
+};
+$('t_go').onclick = async () => {
+  const m = $('t_msg').value.trim(); if (!m) return;
+  $('t_out').textContent = '…';
+  try { $('t_out').textContent = (await json('integrations/ai/test', { method: 'POST', json: { message: m } })).reply; }
+  catch (e) { $('t_out').textContent = e.message; }
+};
+start();
+</script></main></body></html>

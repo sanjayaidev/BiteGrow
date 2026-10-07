@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&family=Cinzel:wght@500;600&family=Cormorant+Garamond:wght@600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="app.css">
+<!--HEAD_EXTRA-->
 </head>
 <body>
 <div class="app">
@@ -15,12 +16,13 @@
   <symbol id="rh-corner" viewBox="0 0 48 48"><g fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M3 45V14C3 7 8 3 15 3h30"/><path d="M9 45V18c0-6 3-9 9-9h27" opacity=".6"/><path d="M15 15c4-5 9-5 11-1-4 0-6 2-6 6-4 0-6-2-5-5z"/></g></symbol>
   <symbol id="rh-flourish" viewBox="0 0 120 24"><g fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><path d="M2 17h38c6 0 8-6 12-6"/><path d="M118 17H80c-6 0-8-6-12-6"/><path d="M52 11c3-9 13-9 16 0-3-4-5-5-8-5s-5 1-8 5z" fill="currentColor" stroke="none"/><circle cx="60" cy="19" r="2" fill="currentColor" stroke="none"/></g></symbol>
 </defs></svg>
-  <header class="topbar"><span class="brand">RED HOUSE</span><label class="speed" title="Video scroll speed">Speed <input id="speed" type="range" min="1" max="10" step="1" value="4" aria-label="Video scroll speed"><b id="speedval">4</b></label><span class="tag">Demo</span></header>
+  <div class="first-screen">
+  <header class="logo-banner"><span class="brand">RED HOUSE</span></header>
 
   <!-- HERO: pinned, video scrubs with scroll, text changes -->
   <section class="hero" id="hero" aria-label="Introduction">
     <div class="hero-stage">
-      <video id="heroVideo" class="hero-video" muted playsinline preload="auto" aria-hidden="true"></video>
+      <video id="heroVideo" class="hero-video" poster="videos/hero.jpg" muted playsinline preload="auto" aria-hidden="true"></video>
       <div class="hero-scrim"></div>
       <div class="hero-copy">
         <div class="slide" data-start="0" data-end="0.2"><h1>Fire. Wok. Flavour.</h1><p>Chinese kitchen classics, made to order.</p></div>
@@ -32,17 +34,20 @@
       <div class="hero-cue" id="cue"><span class="cue-touch"><i>‹</i> Drag <i>›</i></span><span class="cue-mouse">Scroll ↓</span></div>
     </div>
   </section>
+  </div>
 
-  <!-- POPULAR -->
+  <!-- SPECIAL -->
   <section class="section" id="popular">
-    <div class="sec-head"><h2>Popular</h2><span class="sub">Drag left / right</span></div>
+    <div class="sec-head"><h2>Special</h2><span class="sub">Drag left / right</span></div>
     <div class="pop-row" id="popRow"></div>
     <div class="dots" id="popDots"></div>
   </section>
 
+  <!--TOP_PICK-->
+
   <!-- MENU -->
   <section class="section" id="menu">
-    <div class="sec-head"><h2>Menu</h2></div>
+    <div class="sec-head"><h2>Menu</h2><label class="sort"><span>Sort</span><select id="sort" aria-label="Sort menu"><option value="rec">Recommended</option><option value="pa">Price: low to high</option><option value="pd">Price: high to low</option><option value="rt">Top rated</option><option value="po">Most popular</option></select></label></div>
     <div class="chips" id="chips"></div>
     <div id="list"></div>
   </section>
@@ -51,7 +56,7 @@
 
   <footer class="tabs" id="tabs">
     <button data-tab="home" class="active"><svg viewBox="0 0 24 24"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>Home</button>
-    <button data-tab="popular"><svg viewBox="0 0 24 24"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></svg>Popular</button>
+    <button data-tab="popular"><svg viewBox="0 0 24 24"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></svg>Special</button>
     <button data-tab="menu"><svg viewBox="0 0 24 24"><path d="M4 3v7a2 2 0 0 0 2 2v9"/><path d="M8 3v6"/><path d="M4 6h4"/><path d="M18 3c-1.7 0-3 2-3 5s1.3 5 3 5v8"/></svg>Menu</button>
     <button data-tab="basket"><span class="ic"><svg viewBox="0 0 24 24"><path d="M6 8h12l-1.2 11.2a2 2 0 0 1-2 1.8H9.2a2 2 0 0 1-2-1.8L6 8Z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></svg><b class="badge" id="badge" hidden>0</b></span>Basket</button>
   </footer>

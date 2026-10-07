@@ -1,21 +1,20 @@
-:root{--bg:#121110;--surface:#1c1a18;--line:#2c2925;--gold:#e3b23c;--red:#b8352b;--text:#f4efe6;--muted:#a99f8f;--top:56px;--tabs:62px}
+:root{--bg:#121110;--surface:#1c1a18;--line:#2c2925;--gold:#e3b23c;--red:#b8352b;--text:#f4efe6;--muted:#a99f8f;--top:0px;--tabs:62px}
 *{box-sizing:border-box}
 html{scroll-behavior:smooth;scroll-padding-top:var(--top)}
 body{margin:0;background:#070606;color:var(--text);font-family:'Poppins',system-ui,sans-serif;-webkit-tap-highlight-color:transparent}
 
 /* mobile column on every screen size */
 .app{max-width:480px;margin:0 auto;background:var(--bg);min-height:100vh;position:relative;box-shadow:0 0 0 1px var(--line);padding-bottom:calc(var(--tabs) + env(safe-area-inset-bottom,0px))}
-.topbar{position:sticky;top:0;z-index:20;height:var(--top);background:#000;display:flex;align-items:center;justify-content:space-between;padding:0 16px}
-.brand{color:var(--gold);font-weight:700;letter-spacing:.14em;font-size:15px}
-.speed{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);white-space:nowrap}
-.speed input{width:84px;height:28px;margin:0;accent-color:var(--gold);touch-action:pan-x}
-.speed b{color:var(--text);min-width:1.4em;text-align:center}
-.tag{font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:3px 10px}
+/* first screen = full-width logo + hero, together exactly one screen tall */
+.first-screen{height:100svh;display:flex;flex-direction:column}
+.logo-banner{flex:none;background:#000;text-align:center}
+.logo{display:block;width:100%;height:auto;max-height:26svh;object-fit:contain}
+.brand{display:block;color:var(--gold);font-weight:700;letter-spacing:.14em;font-size:20px;padding:16px}
 
 /* hero: 1 screen height, horizontal swipe/wheel scrubs video */
-.hero{height:100svh;position:relative}
+.hero{flex:1;min-height:0;position:relative}
 .hero-stage{
-  position:sticky;top:var(--top);height:calc(100svh - var(--top));
+  position:absolute;inset:0;
   overflow:hidden;background:#000;
   touch-action:pan-y; /* Allows vertical page scroll, JS handles horizontal */
 }
@@ -34,6 +33,7 @@ body{margin:0;background:#070606;color:var(--text);font-family:'Poppins',system-
 .hero-cue{position:absolute;left:20px;bottom:calc(var(--tabs) + 18px);font-size:12px;color:var(--muted);display:none;transition:opacity .4s}
 .hero.ready .hero-cue{display:block}
 .hero.used .hero-cue{opacity:0;pointer-events:none}
+.hero.no-manual .hero-cue{display:none!important}
 .cue-touch{display:none;align-items:center;gap:8px}
 .cue-touch i,.hint i{font-style:normal;font-size:18px;line-height:1;color:var(--gold)}
 .cue-touch i:first-child,.hint i:first-child{animation:nudgeL 1.2s ease-in-out infinite}
@@ -67,6 +67,17 @@ body{margin:0;background:#070606;color:var(--text);font-family:'Poppins',system-
 .pop .nm{margin:8px 2px 0;font-size:15px;font-weight:600;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pop .pr{margin:2px 2px 0;font-size:13px;color:var(--gold);font-weight:600}
 .dots{display:none}
+
+/* top pick: one dish with an optional 3D / AR model (the 3D file is only downloaded after the tap) */
+.tp-stage{position:relative;aspect-ratio:16/9;border-radius:12px;overflow:hidden;background:#000}
+.tp-stage>img{width:100%;height:100%;object-fit:contain;display:block}
+.tp-stage model-viewer{display:block;width:100%;height:100%;--poster-color:#000}
+.tp-3d{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);border:0;border-radius:999px;background:var(--gold);color:#1a1408;font:700 13px 'Poppins',sans-serif;padding:9px 18px;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.4)}
+.tp-info{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin:8px 2px 0}
+.tp-info .nm{margin:0;font-size:15px;font-weight:600;line-height:1.25;cursor:pointer}
+.tp-info .pr{margin:0;font-size:13px;color:var(--gold);font-weight:600}
+.sort{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+.sort select{background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:999px;padding:6px 10px;font:600 12px 'Poppins',sans-serif;max-width:170px}
 
 /* menu */
 .chips{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;margin:0 -16px 6px;padding:0 16px 6px;position:sticky;top:var(--top);z-index:5;background:var(--bg)}

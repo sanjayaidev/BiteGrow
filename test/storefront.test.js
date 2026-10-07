@@ -9,7 +9,7 @@ process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
 process.env.DEFAULT_TENANT = 'redhouse';
 process.env.TRUST_PROXY_HOPS = '0';
 
-const { createStorefront, shapeMenu, buildVideos, pick, jsonForScript } = require('../src/render');
+const { createStorefront, shapeMenu, buildVideos, pick, jsonForScript, modelSrc, chooseTopPick } = require('../src/render');
 
 const tenantRow = (slug, over = {}) => ({
   id: 'id-' + slug, slug, name: slug, status: 'active', timezone: 'Asia/Kolkata', currency: 'INR',
@@ -122,6 +122,79 @@ test('renderPage: menu is in the HTML, escaped, with no menu-data.js and no sold
   assert.ok(!html.includes('menu-data.js'));
   assert.match(html, /window\.MENU=\{/);
   assert.match(html, /poster="https:\/\/cdn\/p1\.jpg\?v=2"/);     // popular card 1 poster from the tenant's media
+});
+
+// ------------------------------------------------------------ homepage: logo, hero cover, top pick --
+
+// The seed restaurant, with 3D models on two dishes.
+const withModels = () => ({
+  ...DATA,
+  bg_menu_items: DATA.bg_menu_items.map((i) => (i.id === 10 ? { ...i, model_url: 'model-1.glb' } : i.id === 11 ? { ...i, model_url: 'https://cdn/egg.glb', rating: 4.9 } : i)),
+});
+const render = (data, tenant, lang = 'en') => createStorefront({ supabase: { from: fakeDb(data).from } }).renderPage(tenant, lang, {});
+
+test('logo: full-width image when the restaurant has one, its name otherwise', async () => {
+  const withLogo = await render(DATA, tenantObj({ settings: { brandName: 'RED "HOUSE"', pageTitle: 'x', logoUrl: 'https://cdn/logo.png', cardBgUrl: null } }));
+  assert.match(withLogo, /<header class="logo-banner"><img class="logo" src="https:\/\/cdn\/logo\.png" alt="RED &quot;HOUSE&quot;"/);
+  assert.ok(!withLogo.includes('<span class="brand">'));
+  const without = await render(DATA, tenantObj());
+  assert.match(without, /<header class="logo-banner"><span class="brand">RED HOUSE<\/span><\/header>/);
+  assert.ok(!without.includes('class="logo"'));
+});
+
+test('hero cover: the first frame is in the HTML and preloaded, from the tenant or the shared default', async () => {
+  const mine = await render(DATA, tenantObj());
+  assert.match(mine, /<video id="heroVideo"[^>]*poster="https:\/\/cdn\/hero\.jpg\?v=7"/);
+  assert.match(mine, /<link rel="preload" as="image" href="https:\/\/cdn\/hero\.jpg\?v=7"/);
+  const none = await render({ ...DATA, bg_tenant_media: [] }, tenantObj());
+  assert.match(none, /<video id="heroVideo"[^>]*poster="videos\/hero\.jpg"/);
+  assert.match(none, /<link rel="preload" as="image" href="videos\/hero\.jpg"/);
+});
+
+test('top pick: the best-rated dish that has a 3D model, tied to its model file', async () => {
+  const html = await render(withModels(), tenantObj());
+  assert.match(html, /<section class="section" id="toppick">/);
+  assert.match(html, /<div class="tp" data-id="11" data-model="https:\/\/cdn\/egg\.glb">/);   // 4.9 beats 4.8; a full URL is kept as is
+  assert.match(html, /View in 3D/);
+  assert.ok(html.indexOf('id="popular"') < html.indexOf('id="toppick"') && html.indexOf('id="toppick"') < html.indexOf('id="menu"'));
+});
+
+test('top pick: the restaurant can choose the dish, or switch the section off', async () => {
+  const chosen = await render(withModels(), tenantObj({ settings: { brandName: 'R', pageTitle: 'R', features: { topPickItemId: 10 } } }));
+  assert.match(chosen, /<div class="tp" data-id="10" data-model="models\/model-1\.glb">/);       // a bare file name is served from /models
+  const stale = await render(withModels(), tenantObj({ settings: { brandName: 'R', pageTitle: 'R', features: { topPickItemId: 999 } } }));
+  assert.match(stale, /data-id="11"/);                                                         // a dish that is gone falls back to the best one
+  const off = await render(withModels(), tenantObj({ settings: { brandName: 'R', pageTitle: 'R', features: { topPick: false } } }));
+  assert.ok(!off.includes('id="toppick"'));
+});
+
+test('top pick: no 3D models, no section; only available dishes count', async () => {
+  assert.ok(!(await render(DATA, tenantObj())).includes('id="toppick"'));
+  const soldOut = withModels();
+  soldOut.bg_menu_items = soldOut.bg_menu_items.map((i) => (i.id === 12 ? { ...i, model_url: 'ghost.glb' } : i));   // sold out, rating 5
+  const html = await render(soldOut, tenantObj());
+  assert.ok(!html.includes('ghost.glb'));
+});
+
+test('chooseTopPick and modelSrc', () => {
+  const menu = { items: [{ id: 1, model: 'a.glb', rating: 4, popularity: 1 }, { id: 2, model: 'b.glb', rating: 4, popularity: 9 }, { id: 3, model: null, rating: 5, popularity: 0 }] };
+  assert.equal(chooseTopPick(menu, {}).id, 2);                      // tie on rating -> more popular
+  assert.equal(chooseTopPick(menu, { topPickItemId: '1' }).id, 1);  // the id may come from JSON as a string
+  assert.equal(chooseTopPick(menu, { topPickItemId: 3 }).id, 2);    // chosen dish has no model -> fall back
+  assert.equal(chooseTopPick(menu, { topPick: false }), null);
+  assert.equal(chooseTopPick({ items: [] }, {}), null);
+  assert.equal(modelSrc('x.glb'), 'models/x.glb');
+  assert.equal(modelSrc('https://c/x.glb'), 'https://c/x.glb');
+  assert.equal(modelSrc('//c/x.glb'), '//c/x.glb');
+  assert.equal(modelSrc('/uploads/x.glb'), '/uploads/x.glb');
+});
+
+test('homepage template: Special section, sort control, no visitor speed slider or Demo tag', async () => {
+  const html = await render(DATA, tenantObj());
+  assert.match(html, /<h2>Special<\/h2>/);
+  assert.match(html, /<select id="sort"/);
+  assert.ok(!html.includes('id="speed"') && !html.includes('class="tag"'));
+  assert.match(html, /<div class="pop-row" id="popRow">/);           // the Special row is the same markup as before
 });
 
 test('renderPage: tenants are isolated', async () => {
@@ -242,8 +315,10 @@ test('server: renders per host, serves config and menu JSON, rejects unknown hos
   assert.equal(r.status, 404);
   assert.deepEqual(await r.json(), { error: 'Not found' });
 
-  r = await get('/admin');
-  assert.equal(r.status, 503);
+  r = await get('/admin');                                       // static shell; the API behind it checks the role
+  assert.equal(r.status, 200);
+  assert.match(r.headers.get('content-type'), /text\/html/);
+  assert.equal(r.headers.get('cache-control'), 'no-store');
 
   r = await get('/health');
   assert.equal(r.status, 200);

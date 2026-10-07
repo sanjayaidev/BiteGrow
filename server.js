@@ -20,6 +20,11 @@ const { createAuth } = require('./src/middleware/auth');
 const { createAuthRouter } = require('./src/routes/auth');
 const { createCartRouter } = require('./src/routes/cart');
 const { createOrdersRouter } = require('./src/routes/orders');
+const { createAdminRouter } = require('./src/routes/admin');
+const { createMetaRouter } = require('./src/routes/meta');
+const { createAssistantRouter } = require('./src/routes/assistant');
+const { createAssistant } = require('./src/lib/assistant');
+const { createSecretBox } = require('./src/lib/secrets');
 
 let compression = null;
 try { compression = require('compression'); }
@@ -37,6 +42,8 @@ const resolver = createTenantResolver({
 });
 const storefront = createStorefront({ supabase, reloadTemplate: !PRODUCTION });
 const auth = createAuth({ supabase });
+const secretBox = createSecretBox();
+const assistant = createAssistant({ supabase, secretBox });
 
 const app = express();
 // Hosting platforms put the app behind a proxy; trusting its hop count gives real client IPs and hostnames.
@@ -49,8 +56,12 @@ if (compression) app.use(compression());
 
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
-// The old single-client admin only managed one global set of videos. It returns, per tenant, with the admin step.
-app.get(['/admin', '/admin.html'], (req, res) => res.status(503).type('text').send('Admin is being rebuilt.'));
+// Meta (WhatsApp / Instagram / Messenger) calls one URL for every restaurant and signs the raw body,
+// so this mounts before the tenant resolver and before any JSON parsing.
+app.use('/webhooks/meta', createMetaRouter({ supabase, assistant, secretBox }));
+
+// The admin page is a static shell; it signs in through /api/auth and every /api/admin call re-checks the role.
+app.get(['/admin', '/admin.html'], (req, res) => res.set('Cache-Control', 'no-store').sendFile(path.join(PUBLIC_DIR, 'admin.html')));
 
 // Static assets are shared by all tenants and need no database lookup, so they are served before tenant
 // resolution. index:false leaves "/" to the renderer. Videos support Range requests (needed for seeking).
@@ -93,11 +104,15 @@ app.get('/api/menu', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+const onTenantChanged = (id) => { resolver.invalidate(id); storefront.invalidate(id); assistant.invalidate(id); };
+const onMenuChanged = (id) => { storefront.invalidate(id); assistant.invalidate(id); };
+
 app.use('/api/auth', createAuthRouter({ supabase, auth }));
 app.use('/api/cart', createCartRouter({ supabase, auth }));
 app.use('/api', createOrdersRouter({ supabase, auth }));       // /api/orders, /api/orders/:number, /api/table/:token
 
-// ---- Routes for later steps mount here (each gets req.tenant): admin, assistant ----
+app.use('/api/admin', createAdminRouter({ supabase, auth, secretBox, assistant, onTenantChanged, onMenuChanged }));
+app.use('/api/assistant', createAssistantRouter({ assistant }));
 
 app.get('/', async (req, res, next) => {
   try {

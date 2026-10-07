@@ -3,28 +3,28 @@
 const $ = (s, r = document) => r.querySelector(s);
 const CFG = window.CONFIG || {}, FEAT = CFG.features || {};
 if (CFG.pageTitle) document.title = CFG.pageTitle;
-if (CFG.brand) $('.brand').textContent = CFG.brand;
+const brandEl = $('.brand');
+if (CFG.brand && brandEl) brandEl.textContent = CFG.brand;
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const smooth = t => t * t * (3 - 2 * t);
-const money = n => '$' + n.toFixed(2);
+const money = n => (CFG.currency || '$') + Number(n).toFixed(2);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const { categories, items } = window.MENU;
 const byId = id => items.find(i => i.id === id);
-const img = i => i.id === 1 ? 'img/beef.png' : 'img/food.png';
+const FOOD = 'img/food.png';
+const img = i => i.img || i.png || FOOD;                  // main photo: item sheet, 3D poster
+const modelSrc = m => (/^(https?:)?\/\/|^\//.test(m) ? m : 'models/' + m);   // file in /models or a full URL
 const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-/* ================= SPEED CONTROL (1-10, remembered on this device) =================
-   Drag: how much of a video one full-width drag covers (speed 4 = 48%, 10 = 120%).
-   Wheel / trackpad: scales the step per notch (speed 4 = normal). */
-let speedUI = 4;
-try { const v = parseInt(localStorage.getItem('scrubSpeedUI'), 10); if (v >= 1 && v <= 10) speedUI = v; } catch (_) {}
-const speedInput = $('#speed'), speedVal = $('#speedval');
-speedInput.value = speedUI; speedVal.textContent = speedUI;
-speedInput.addEventListener('input', () => {
-  speedUI = parseInt(speedInput.value, 10) || 4;
-  speedVal.textContent = speedUI;
-  try { localStorage.setItem('scrubSpeedUI', speedUI); } catch (_) {}
-});
+/* ================= HERO / SCRUB SETTINGS (set per restaurant in admin: features.heroMode, features.heroSpeed) =================
+   heroMode  'both' (default): plays by itself and the visitor can drag / scroll it
+             'auto'          : plays by itself only
+             'manual'        : drag / scroll only
+   heroSpeed 1-10 (4 = normal video speed). Drag: how much of a video one full-width drag covers (4 = 48%, 10 = 120%).
+   Wheel / trackpad: scales the step per notch (4 = normal). */
+const HERO_MODE = ['auto', 'manual', 'both'].includes(FEAT.heroMode) ? FEAT.heroMode : 'both';
+const AUTO = HERO_MODE !== 'manual', MANUAL = HERO_MODE !== 'auto';
+const speedUI = clamp(Math.round(Number(FEAT.heroSpeed)) || 4, 1, 10);
 const dragGain = () => speedUI * 0.12;
 const wheelMul = () => speedUI / 4;
 
@@ -62,6 +62,7 @@ function dragScrub(el, { canStart, start, move, flag = el }) {
 /* ================= HERO: video scrubs with mouse wheel (PC) or left/right drag (mobile) =================
    The page is never locked. Until the hero video is fully loaded, everything scrolls normally. */
 const hero = $('#hero'), stage = $('.hero-stage'), vid = $('#heroVideo');
+hero.classList.toggle('no-manual', !MANUAL);
 const slides = [...hero.querySelectorAll('.slide')].map(el => ({ el, s: +el.dataset.start, e: +el.dataset.end }));
 const FADE = 0.05, EASE = reduce ? 1 : 0.16;
 let target = 0, cur = 0, lastT = -1, ready = false, raf = 0, holdUntil = 0;
@@ -112,7 +113,7 @@ function heroTo(p) {
 
 // Mobile (and mouse drag): horizontal drag scrubs. Vertical swipes scroll the page as usual.
 dragScrub(stage, {
-  canStart: () => ready,
+  canStart: () => ready && MANUAL,
   start: () => target,
   move: (base, dx) => heroTo(base - dx / innerWidth * dragGain() * HERO_BOOST)
 });
@@ -120,7 +121,7 @@ dragScrub(stage, {
 // PC: mouse wheel scrubs while the page is at the top. At either end of the video the wheel
 // goes back to scrolling the page, so you can never get stuck.
 addEventListener('wheel', e => {
-  if (!ready || e.ctrlKey || scrollY > 2 || document.querySelector('.sheet.open')) return;
+  if (!MANUAL || !ready || e.ctrlKey || scrollY > 2 || document.querySelector('.sheet.open')) return;
   let d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
   if (!d) return;
   if (e.deltaMode === 1) d *= 33; else if (e.deltaMode === 2) d *= innerHeight;
@@ -137,14 +138,16 @@ addEventListener('wheel', e => {
 // Auto-play: once loaded, the hero advances by itself. At Speed 4 it plays at normal video speed
 // (the Speed slider scales it). It pauses while the visitor touches / drags / wheels the hero,
 // resumes after 2.5 s idle, loops back to the start at the end, and never runs for reduced-motion users.
-stage.addEventListener('pointerdown', () => { autoPauseUntil = Infinity; });
-['pointerup', 'pointercancel'].forEach(ev => stage.addEventListener(ev, () => { autoPauseUntil = performance.now() + 2500; }));
+if (MANUAL) {
+  stage.addEventListener('pointerdown', () => { autoPauseUntil = Infinity; });
+  ['pointerup', 'pointercancel'].forEach(ev => stage.addEventListener(ev, () => { autoPauseUntil = performance.now() + 2500; }));
+}
 
 function autoStep(ts) {
   requestAnimationFrame(autoStep);
   const dt = lastAuto ? Math.min((ts - lastAuto) / 1000, 0.1) : 0;
   lastAuto = ts;
-  if (reduce || !ready || !vid.duration) return;
+  if (!AUTO || reduce || !ready || !vid.duration) return;
   if (scrollY > 2 || document.hidden || ts < autoPauseUntil || document.querySelector('.sheet.open')) return;
   let next = target + dt / vid.duration * (speedUI / 4);
   if (next >= 1) { next = 0; cur = 0; lastT = -1; } // loop: jump back to the first frame
@@ -294,7 +297,15 @@ row.addEventListener('click', e => {
 });
 
 /* ================= MENU ================= */
-let activeCat = 'all';
+let activeCat = 'all', sortBy = 'rec';
+const SORTS = {
+  rec: null,                                                              // the restaurant's own order
+  pa: (a, b) => a.price - b.price,
+  pd: (a, b) => b.price - a.price,
+  rt: (a, b) => b.rating - a.rating || b.popularity - a.popularity,
+  po: (a, b) => b.popularity - a.popularity || b.rating - a.rating,
+};
+$('#sort').addEventListener('change', e => { sortBy = SORTS[e.target.value] !== undefined ? e.target.value : 'rec'; renderList(); });
 $('#chips').innerHTML = [{ id: 'all', label: 'All' }, ...categories].map(c => `<button class="chip${c.id === 'all' ? ' on' : ''}" data-c="${c.id}">${esc(c.label)}</button>`).join('');
 $('#chips').addEventListener('click', e => {
   const b = e.target.closest('.chip'); if (!b) return;
@@ -305,7 +316,9 @@ $('#chips').addEventListener('click', e => {
 
 function renderList() {
   const corner = p => `<svg class="corner ${p}" viewBox="0 0 48 48" aria-hidden="true"><use href="#rh-corner"/></svg>`;
-  $('#list').innerHTML = items.filter(i => activeCat === 'all' || i.cat === activeCat).map(i => {
+  let shown = items.filter(i => activeCat === 'all' || i.cat === activeCat);
+  if (SORTS[sortBy]) shown = [...shown].sort(SORTS[sortBy]);
+  $('#list').innerHTML = shown.map(i => {
     const p = money(i.price), food = esc(i.png || img(i));   // layer 3 falls back to the normal photo
     return `<article class="row" data-id="${i.id}">
       ${(i.bg || CFG.cardBg) ? `<img class="bg" src="${esc(i.bg || CFG.cardBg)}" alt="" loading="lazy" decoding="async">` : ''}
@@ -351,7 +364,7 @@ function openItem(id) {
   let media = `<img class="big" src="${img(i)}" alt="${esc(i.name)}">`;
   if (FEAT.ar3d && i.model) {
     loadViewer();   // only fetched the first time someone opens a 3D dish
-    media = `<model-viewer src="models/${esc(i.model)}" poster="${img(i)}" alt="${esc(i.name)}" ar ar-modes="webxr scene-viewer quick-look" camera-controls auto-rotate shadow-intensity="1" environment-image="neutral" interaction-prompt="none"><button slot="ar-button" class="ar-btn">View on your table</button></model-viewer>`;
+    media = `<model-viewer src="${esc(modelSrc(i.model))}" poster="${img(i)}" alt="${esc(i.name)}" ar ar-modes="webxr scene-viewer quick-look" camera-controls auto-rotate shadow-intensity="1" environment-image="neutral" interaction-prompt="none"><button slot="ar-button" class="ar-btn">View on your table</button></model-viewer>`;
   }
   open( `${media} <h3>${esc(i.name)}</h3> <p class="muted">${esc(i.desc)}</p> <div class="line"><span>${i.rating.toFixed(1)} ★ · ${i.cal} kcal</span><b style="color:var(--gold)">${money(i.price)}</b></div> <button class="btn" data-add="${i.id}">Add to basket</button> <button class="btn ghost" data-close>Close</button>` );
 }
@@ -379,6 +392,21 @@ cardEl.addEventListener('click', e => {
   else if (t.dataset.goto) { close(); go(t.dataset.goto); }
   else if ('close' in t.dataset) close();
 });
+
+/* ================= TOP PICK: tap "View in 3D" to swap the picture for the live model =================
+   The server only renders this section when the restaurant keeps it on and has a model. The (large) 3D file and the
+   viewer script are not downloaded until the visitor asks for them. */
+const tp = $('#toppick .tp');
+if (tp) {
+  tp.addEventListener('click', e => {
+    const item = byId(+tp.dataset.id);
+    if (e.target.closest('.tp-3d')) {
+      loadViewer();
+      const stage = tp.querySelector('.tp-stage');
+      stage.innerHTML = `<model-viewer src="${esc(tp.dataset.model)}" poster="${esc(item ? img(item) : FOOD)}" alt="${esc(item ? item.name : '')}" ar ar-modes="webxr scene-viewer quick-look" camera-controls auto-rotate shadow-intensity="1" environment-image="neutral" interaction-prompt="none"><button slot="ar-button" class="ar-btn">View on your table</button></model-viewer>`;
+    } else if (item && e.target.closest('.nm, .pr')) openItem(item.id);
+  });
+}
 
 /* ================= FOOTER NAV ================= */
 function go(tab) {

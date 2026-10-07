@@ -67,6 +67,8 @@ function buildVideos(rows) {
   return out;
 }
 
+const metaPixel = (id) => `<script>!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('init','${id}');fbq('track','PageView');</script>\n`;
+
 const money = (symbol, n) => `${symbol}${Number(n).toFixed(2)}`;
 const corner = (p) => `<svg class="corner ${p}" viewBox="0 0 48 48" aria-hidden="true"><use href="#rh-corner"/></svg>`;
 
@@ -110,6 +112,33 @@ function renderSections(menu, { currency, cardBg, videos }) {
     .join('');
 
   return { chips, list, popular };
+}
+
+// A model_url is either a file in public/models ("model-3.glb") or a full URL (uploaded to storage).
+const modelSrc = (m) => (/^(https?:)?\/\//.test(m) || m.startsWith('/') ? m : `models/${m}`);
+
+// The "Top pick" 3D feature. Optional per restaurant: features.topPick === false switches it off, and
+// features.topPickItemId chooses the dish. Without a choice it is the best-rated dish that has a 3D model.
+// A restaurant with no 3D models gets no section at all.
+function chooseTopPick(menu, features = {}) {
+  if (features.topPick === false) return null;
+  const withModel = menu.items.filter((i) => i.model);
+  if (!withModel.length) return null;
+  const chosen = withModel.find((i) => i.id === Number(features.topPickItemId));
+  if (chosen) return chosen;
+  return [...withModel].sort((a, b) => b.rating - a.rating || b.popularity - a.popularity)[0];
+}
+
+function renderTopPick(item, { currency }) {
+  if (!item) return '';
+  const poster = item.png || item.img || FOOD_FALLBACK;
+  return `<section class="section" id="toppick">
+    <div class="sec-head"><h2>Top pick</h2><span class="sub">Tap to view in 3D</span></div>
+    <div class="tp" data-id="${item.id}" data-model="${esc(modelSrc(item.model))}">
+      <div class="tp-stage"><img src="${esc(poster)}" alt="${esc(item.name)}" loading="lazy" decoding="async"><button class="tp-3d" type="button">View in 3D</button></div>
+      <div class="tp-info"><p class="nm">${esc(item.name)}</p><p class="pr">${esc(money(currency, item.price))}</p></div>
+    </div>
+  </section>`;
 }
 
 // Replace one anchor in the template. A missing anchor is a deployment bug, so it fails loudly.
@@ -171,12 +200,26 @@ function createStorefront({
     let html = getTemplate();
     html = swap(html, '<html lang="en">', `<html lang="${esc(lang)}">`);
     html = swap(html, '<title>Red House — Demo</title>', `<title>${esc(s.pageTitle)}</title>`);
-    html = swap(html, '<span class="brand">RED HOUSE</span>', `<span class="brand">${esc(s.brandName)}</span>`);
+    // Logo: full width across the top. A restaurant without a logo gets its name in the same place.
+    html = swap(html, '<header class="logo-banner"><span class="brand">RED HOUSE</span></header>',
+      s.logoUrl
+        ? `<header class="logo-banner"><img class="logo" src="${esc(s.logoUrl)}" alt="${esc(s.brandName)}" fetchpriority="high" decoding="async"></header>`
+        : `<header class="logo-banner"><span class="brand">${esc(s.brandName)}</span></header>`);
+    // Hero cover: the first frame is in the HTML itself (poster) and is preloaded, so it shows before any script or video arrives.
+    const cover = (videos.hero && videos.hero.poster) || 'videos/hero.jpg';
+    html = swap(html, 'poster="videos/hero.jpg"', `poster="${esc(cover)}"`);
+    html = swap(html, '<!--HEAD_EXTRA-->', `<link rel="preload" as="image" href="${esc(cover)}" fetchpriority="high">`);
+    html = swap(html, '<!--TOP_PICK-->', renderTopPick(chooseTopPick(menu, s.features), { currency: tenant.currencySymbol }));
     html = swap(html, '<div class="pop-row" id="popRow"></div>', `<div class="pop-row" id="popRow">${parts.popular}</div>`);
     html = swap(html, '<div class="chips" id="chips"></div>', `<div class="chips" id="chips">${parts.chips}</div>`);
     html = swap(html, '<div id="list"></div>', `<div id="list">${parts.list}</div>`);
     html = swap(html, '<script src="menu-data.js"></script>',
       `<script>window.CONFIG=${jsonForScript({ ...config, lang })};window.MENU=${jsonForScript(menu)};window.VIDEOS=${jsonForScript(videos)};</script>`);
+
+    // Optional per-restaurant extras. Both ids are validated (digits only) before they reach the tenant object.
+    const ig = tenant.integrations || {};
+    if (ig.metaPixelId) html = swap(html, '</head>', metaPixel(ig.metaPixelId) + '</head>');
+    if (config && config.assistant) html = swap(html, '</body>', '<script src="assistant.js" defer></script>\n</body>');
 
     pageCache.set(key, { at: now(), tenant, html });
     return html;
@@ -191,4 +234,4 @@ function createStorefront({
   return { renderPage, menuFor, invalidate };
 }
 
-module.exports = { createStorefront, shapeMenu, buildVideos, renderSections, pick, esc, jsonForScript };
+module.exports = { createStorefront, shapeMenu, buildVideos, renderSections, chooseTopPick, renderTopPick, modelSrc, pick, esc, jsonForScript };

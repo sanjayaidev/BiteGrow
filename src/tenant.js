@@ -10,7 +10,8 @@
 // The host comes from req.hostname, which Express fills from X-Forwarded-Host
 // only when "trust proxy" is set, so a client cannot spoof it by itself.
 
-const SELECT = '*, settings:bg_tenant_settings(*)';
+const SELECT = '*, settings:bg_tenant_settings(*), integrations:bg_tenant_integrations(meta_pixel_id, ai_enabled, ai_greeting, ai_channels)';
+const TENANT_SELECT = SELECT;
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/;
 
 function normalizeHost(h) {
@@ -48,6 +49,12 @@ function shapeTenant(row) {
       orderTypes: s.order_types || ['dine_in', 'pickup', 'delivery'],
       features: s.features || {},
     },
+    // Only the public-safe parts of the integrations row (never tokens or keys).
+    integrations: {
+      metaPixelId: row.integrations && /^\d{5,25}$/.test(row.integrations.meta_pixel_id || '') ? row.integrations.meta_pixel_id : null,
+      assistantOn: !!(row.integrations && row.integrations.ai_enabled && (row.integrations.ai_channels || []).includes('web') && (s.features || {}).assistant),
+      assistantGreeting: (row.integrations && row.integrations.ai_greeting) || '',
+    },
   };
 }
 
@@ -72,6 +79,8 @@ function publicConfig(t) {
     deliveryFee: s.deliveryFee,
     orderTypes: s.orderTypes,
     features: s.features,
+    assistant: !!(t.integrations && t.integrations.assistantOn),
+    assistantGreeting: (t.integrations && t.integrations.assistantGreeting) || '',
   };
 }
 
@@ -156,4 +165,4 @@ function createTenantResolver({
   return { middleware, find, invalidate };
 }
 
-module.exports = { createTenantResolver, publicConfig, shapeTenant, normalizeHost };
+module.exports = { createTenantResolver, publicConfig, shapeTenant, normalizeHost, TENANT_SELECT };
