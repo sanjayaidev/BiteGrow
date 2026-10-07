@@ -16,6 +16,7 @@ const MAX_INPUT = 500;
 const MAX_HISTORY = 12;          // messages kept per contact
 const MAX_TOKENS = 400;
 const MENU_TTL_MS = 60_000;
+const HISTORY_MSG_MAX = 2000;    // one stored message, keeps a runaway reply from poisoning history
 
 const CHANNELS = ['web', 'whatsapp', 'instagram', 'facebook'];
 
@@ -54,6 +55,7 @@ function buildSystemPrompt(tenant, cfg, menuText) {
 
 function createAssistant({ supabase, chat = callDashScopeChat, now = Date.now }) {
   const menuCache = new Map();    // tenantId -> { at, text }
+  const quotaLocks = new Map();   // "tenant:day" -> tail of the queued takeQuota calls (per process)
 
   async function menuText(tenant) {
     const hit = menuCache.get(tenant.id);
@@ -65,12 +67,20 @@ function createAssistant({ supabase, chat = callDashScopeChat, now = Date.now })
     ]);
     for (const r of [cats, items]) if (r.error) throw r.error;
     const catName = new Map((cats.data || []).map((c) => [c.id, pick(c.label, tenant.defaultLang, tenant.defaultLang) || c.key]));
-    const text = (items.data || []).map((i) => {
-      const n = pick(i.name, tenant.defaultLang, tenant.defaultLang);
-      const d = pick(i.description, tenant.defaultLang, tenant.defaultLang);
-      return `- [${catName.get(i.category_id) || 'Other'}] ${n} - ${tenant.currencySymbol}${Number(i.price).toFixed(2)}` +
-        (i.is_offer ? ' (offer)' : '') + (i.calories ? `, ${i.calories} kcal` : '') + (d ? `. ${d}` : '');
-    }).join('\n').slice(0, 12000);
+    const byCat = new Map();
+    for (const i of items.data || []) {
+      const key = catName.get(i.category_id) || 'Other';
+      if (!byCat.has(key)) byCat.set(key, []);
+      byCat.get(key).push(i);                       // the query is ordered by sort_order; keep dishes grouped
+    }
+    const text = [...byCat.entries()]
+      .map(([cat, items2]) => `## ${cat}\n` + items2.map((i) => {
+        const n = pick(i.name, tenant.defaultLang, tenant.defaultLang);
+        const d = pick(i.description, tenant.defaultLang, tenant.defaultLang);
+        return `- ${n} - ${tenant.currencySymbol}${Number(i.price).toFixed(2)}` +
+          (i.is_offer ? ' (offer)' : '') + (i.calories ? `, ${i.calories} kcal` : '') + (d ? `. ${d}` : '');
+      }).join('\n'))
+      .join('\n\n').slice(0, 12000);
     menuCache.set(tenant.id, { at: now(), text });
     return text;
   }
