@@ -5,6 +5,7 @@
 // filtered by req.tenant.id.
 require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
+const WebSocket = require('ws'); // Node < 22 has no native WebSocket; realtime-js needs one
 
 const url = process.env.SUPABASE_URL;
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -18,6 +19,7 @@ if (!url || !key) {
 
 const supabase = createClient(url, key, {
   auth: { persistSession: false, autoRefreshToken: false },
+  realtime: { transport: WebSocket },
 });
 
 module.exports = { supabase };

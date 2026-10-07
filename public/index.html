@@ -39,6 +39,7 @@
   <!-- SPECIAL -->
   <section class="section" id="popular">
     <div class="sec-head"><h2>Special</h2><span class="sub">Drag left / right</span></div>
+    <div class="speed"><label for="speed">Speed</label><input type="range" id="speed" min="1" max="10" step="1" value="4" aria-describedby="speedVal"><output id="speedVal" for="speed">4</output></div>
     <div class="pop-row" id="popRow"></div>
     <div class="dots" id="popDots"></div>
   </section>
@@ -48,7 +49,14 @@
   <!-- MENU -->
   <section class="section" id="menu">
     <div class="sec-head"><h2>Menu</h2><label class="sort"><span>Sort</span><select id="sort" aria-label="Sort menu"><option value="rec">Recommended</option><option value="pa">Price: low to high</option><option value="pd">Price: high to low</option><option value="rt">Top rated</option><option value="po">Most popular</option></select></label></div>
-    <div class="chips" id="chips"></div>
+    <div class="menu-bar">
+      <div class="filters">
+        <input type="search" id="q" placeholder="Search dishes" aria-label="Search dishes" autocomplete="off" enterkeyhint="search">
+        <button type="button" class="chip" id="offerOnly" aria-pressed="false" hidden>Offers</button>
+      </div>
+      <div class="chips" id="chips"></div>
+    </div>
+    <p class="empty" id="empty" hidden>No dishes match. Try another search or filter.</p>
     <div id="list"></div>
   </section>
 
@@ -60,6 +68,9 @@
     <button data-tab="menu"><svg viewBox="0 0 24 24"><path d="M4 3v7a2 2 0 0 0 2 2v9"/><path d="M8 3v6"/><path d="M4 6h4"/><path d="M18 3c-1.7 0-3 2-3 5s1.3 5 3 5v8"/></svg>Menu</button>
     <button data-tab="basket"><span class="ic"><svg viewBox="0 0 24 24"><path d="M6 8h12l-1.2 11.2a2 2 0 0 1-2 1.8H9.2a2 2 0 0 1-2-1.8L6 8Z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></svg><b class="badge" id="badge" hidden>0</b></span>Basket</button>
   </footer>
+
+  <!-- Floating WhatsApp button: shown by app.js only when the restaurant has a WhatsApp number -->
+  <a class="wa-float" id="waFloat" href="#" target="_blank" rel="noopener" aria-label="Chat on WhatsApp" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/><path transform="translate(6 5.5) scale(.5)" d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg></a>
 
   <!-- Item + basket sheets (simulated flow, no backend) -->
   <div class="sheet" id="sheet" role="dialog" aria-modal="true"><div class="sheet-card" id="sheetCard"></div></div>

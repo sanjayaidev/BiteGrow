@@ -24,7 +24,18 @@ const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
    Wheel / trackpad: scales the step per notch (4 = normal). */
 const HERO_MODE = ['auto', 'manual', 'both'].includes(FEAT.heroMode) ? FEAT.heroMode : 'both';
 const AUTO = HERO_MODE !== 'manual', MANUAL = HERO_MODE !== 'auto';
-const speedUI = clamp(Math.round(Number(FEAT.heroSpeed)) || 4, 1, 10);
+let speedUI = clamp(Math.round(Number(FEAT.heroSpeed)) || 4, 1, 10);
+// The visitor's own Speed slider (Special section) wins over the restaurant's default, and is remembered on this device.
+try { const s = Math.round(Number(localStorage.getItem('bg_speed'))); if (s >= 1 && s <= 10) speedUI = s; } catch (_) {}
+const speedEl = $('#speed'), speedOut = $('#speedVal');
+if (speedEl) {
+  speedEl.value = speedUI; speedOut.textContent = speedUI;
+  speedEl.addEventListener('input', () => {
+    speedUI = clamp(Math.round(Number(speedEl.value)) || 4, 1, 10);
+    speedOut.textContent = speedUI;
+    try { localStorage.setItem('bg_speed', String(speedUI)); } catch (_) {}
+  });
+}
 const dragGain = () => speedUI * 0.12;
 const wheelMul = () => speedUI / 4;
 
@@ -297,7 +308,7 @@ row.addEventListener('click', e => {
 });
 
 /* ================= MENU ================= */
-let activeCat = 'all', sortBy = 'rec';
+let activeCat = 'all', sortBy = 'rec', query = '', offersOnly = false;
 const SORTS = {
   rec: null,                                                              // the restaurant's own order
   pa: (a, b) => a.price - b.price,
@@ -306,6 +317,10 @@ const SORTS = {
   po: (a, b) => b.popularity - a.popularity || b.rating - a.rating,
 };
 $('#sort').addEventListener('change', e => { sortBy = SORTS[e.target.value] !== undefined ? e.target.value : 'rec'; renderList(); });
+$('#q').addEventListener('input', e => { query = e.target.value.trim().toLowerCase(); renderList(); });
+const offerBtn = $('#offerOnly');
+offerBtn.hidden = !items.some(i => i.offer);
+offerBtn.addEventListener('click', () => { offersOnly = !offersOnly; offerBtn.setAttribute('aria-pressed', String(offersOnly)); renderList(); });
 $('#chips').innerHTML = [{ id: 'all', label: 'All' }, ...categories].map(c => `<button class="chip${c.id === 'all' ? ' on' : ''}" data-c="${c.id}">${esc(c.label)}</button>`).join('');
 $('#chips').addEventListener('click', e => {
   const b = e.target.closest('.chip'); if (!b) return;
@@ -316,7 +331,10 @@ $('#chips').addEventListener('click', e => {
 
 function renderList() {
   const corner = p => `<svg class="corner ${p}" viewBox="0 0 48 48" aria-hidden="true"><use href="#rh-corner"/></svg>`;
-  let shown = items.filter(i => activeCat === 'all' || i.cat === activeCat);
+  let shown = items.filter(i => (activeCat === 'all' || i.cat === activeCat)
+    && (!offersOnly || i.offer)
+    && (!query || (i.name + ' ' + (i.desc || '')).toLowerCase().includes(query)));
+  $('#empty').hidden = shown.length > 0;
   if (SORTS[sortBy]) shown = [...shown].sort(SORTS[sortBy]);
   $('#list').innerHTML = shown.map(i => {
     const p = money(i.price), food = esc(i.png || img(i));   // layer 3 falls back to the normal photo
@@ -406,6 +424,15 @@ if (tp) {
       stage.innerHTML = `<model-viewer src="${esc(tp.dataset.model)}" poster="${esc(item ? img(item) : FOOD)}" alt="${esc(item ? item.name : '')}" ar ar-modes="webxr scene-viewer quick-look" camera-controls auto-rotate shadow-intensity="1" environment-image="neutral" interaction-prompt="none"><button slot="ar-button" class="ar-btn">View on your table</button></model-viewer>`;
     } else if (item && e.target.closest('.nm, .pr')) openItem(item.id);
   });
+}
+
+/* ================= FLOATING WHATSAPP (only when the restaurant has a number) ================= */
+const waNum = String(CFG.whatsappNumber || '').replace(/\D/g, '');
+if (waNum) {
+  const wa = $('#waFloat');
+  wa.href = `https://wa.me/${waNum}?text=${encodeURIComponent('Hi ' + (CFG.brand || '') + '!')}`;
+  wa.hidden = false;
+  document.body.classList.add('has-wa');
 }
 
 /* ================= FOOTER NAV ================= */

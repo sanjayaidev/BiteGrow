@@ -189,11 +189,14 @@ test('chooseTopPick and modelSrc', () => {
   assert.equal(modelSrc('/uploads/x.glb'), '/uploads/x.glb');
 });
 
-test('homepage template: Special section, sort control, no visitor speed slider or Demo tag', async () => {
+test('homepage template: Special section with speed slider, sort + search + filter bar, WhatsApp button, no Demo tag', async () => {
   const html = await render(DATA, tenantObj());
   assert.match(html, /<h2>Special<\/h2>/);
+  assert.match(html, /<input type="range" id="speed"/);
   assert.match(html, /<select id="sort"/);
-  assert.ok(!html.includes('id="speed"') && !html.includes('class="tag"'));
+  assert.match(html, /<input type="search" id="q"/);
+  assert.match(html, /id="waFloat"[^>]*hidden/);                       // hidden until app.js finds a WhatsApp number
+  assert.ok(!html.includes('class="tag"'));
   assert.match(html, /<div class="pop-row" id="popRow">/);           // the Special row is the same markup as before
 });
 
