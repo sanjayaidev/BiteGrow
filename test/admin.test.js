@@ -196,25 +196,33 @@ test('meta settings: token is stored encrypted and only ever returned masked', a
   });
 });
 
-test('assistant settings: key required, encrypted at rest, switch syncs the storefront flag', async () => {
+test('assistant settings: needs the server AI account, validates input, switch syncs the storefront flag', async () => {
   const { app, db, tokens } = setup();
-  delete process.env.ANTHROPIC_API_KEY;
-  await run(app, async (call) => {
-    const put = (body) => call('PUT', '/api/admin/integrations/ai', { token: tokens.staff, body });
-    assert.equal((await put({ enabled: true })).status, 400);                         // no key anywhere
-    assert.equal((await put({ channels: ['sms'] })).status, 400);
-    assert.equal((await put({ daily_limit: -3 })).status, 400);
-    assert.equal((await put({ model: 'bad model!' })).status, 400);
+  const saved = { k: process.env.ALIBABA_API_KEY, w: process.env.ALIBABA_WORKSPACE_ID };
+  delete process.env.ALIBABA_API_KEY; delete process.env.ALIBABA_WORKSPACE_ID;
+  try {
+    await run(app, async (call) => {
+      const put = (body) => call('PUT', '/api/admin/integrations/ai', { token: tokens.staff, body });
+      assert.equal((await put({ enabled: true })).status, 503);                         // the server has no AI account yet
+      assert.equal((await call('GET', '/api/admin/integrations', { token: tokens.staff })).body.ai.available, false);
+      assert.equal((await put({ channels: ['sms'] })).status, 400);
+      assert.equal((await put({ daily_limit: -3 })).status, 400);
 
-    const r = await put({ enabled: true, api_key: 'sk-ant-abcdefghijkl9999', persona: 'We close at 11pm.', channels: ['web', 'whatsapp'], daily_limit: 50, handoff_phone: '+91 75047 04502' });
-    assert.equal(r.status, 200);
-    assert.equal(r.body.ai.api_key, '••••9999');
-    assert.ok(!JSON.stringify(db.rowsOf('bg_tenant_integrations')).includes('sk-ant-abcdefghijkl'));
-    assert.equal(db.rowsOf('bg_tenant_settings')[0].features.assistant, true);
+      process.env.ALIBABA_API_KEY = 'sk-server'; process.env.ALIBABA_WORKSPACE_ID = 'ws1';
+      const r = await put({ enabled: true, persona: 'We close at 11pm.', channels: ['web', 'whatsapp'], daily_limit: 50, handoff_phone: '+91 75047 04502' });
+      assert.equal(r.status, 200);
+      assert.equal(r.body.ai.available, true);
+      assert.equal(r.body.ai.api_key, undefined);                                       // restaurants never see or set a key
+      assert.equal(r.body.ai.model, undefined);
+      assert.ok(!JSON.stringify(r.body).includes('sk-server'));
+      assert.equal(db.rowsOf('bg_tenant_settings')[0].features.assistant, true);
 
-    await put({ enabled: false });
-    assert.equal(db.rowsOf('bg_tenant_settings')[0].features.assistant, false);
-  });
+      await put({ enabled: false });
+      assert.equal(db.rowsOf('bg_tenant_settings')[0].features.assistant, false);
+    });
+  } finally {
+    for (const [name, v] of [['ALIBABA_API_KEY', saved.k], ['ALIBABA_WORKSPACE_ID', saved.w]]) { if (v === undefined) delete process.env[name]; else process.env[name] = v; }
+  }
 });
 
 test('assistant test endpoint reports disabled and works when on', async () => {

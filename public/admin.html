@@ -119,8 +119,6 @@ code{background:var(--field);border:1px solid var(--line);border-radius:6px;padd
   <div class="grid">
     <div><label for="a_phone">Phone to give when it cannot help</label><input id="a_phone" type="text" maxlength="30"></div>
     <div><label for="a_limit">Replies per day</label><input id="a_limit" type="number" min="0" max="100000"></div>
-    <div><label for="a_model">Model</label><input id="a_model" type="text"></div>
-    <div><label for="a_key">API key <small id="a_keyHint"></small></label><input id="a_key" type="password" autocomplete="off" placeholder="Leave empty to keep the saved key"></div>
   </div>
   <div class="row"><button class="primary" id="saveA">Save assistant</button></div><div class="msg" id="aMsg" role="status"></div>
 </section>
@@ -246,8 +244,8 @@ async function loadIntegrations() {
     $('m_tokHint').textContent = meta.access_token ? `(saved: ${meta.access_token})` : '(none saved)';
     say($('m_ready'), meta.webhook_ready ? '' : 'The server still needs META_APP_SECRET and META_VERIFY_TOKEN before Meta can deliver messages.', meta.webhook_ready ? undefined : false);
     $('a_on').checked = ai.enabled; $('a_greet').value = ai.greeting; $('a_persona').value = ai.persona; $('a_phone').value = ai.handoff_phone;
-    $('a_limit').value = ai.daily_limit; $('a_model').value = ai.model; CH.forEach((c) => $('c_' + c).checked = ai.channels.includes(c));
-    $('a_keyHint').textContent = ai.api_key ? `(saved: ${ai.api_key})` : ai.server_key_available ? '(using the platform key)' : '(none saved)';
+    $('a_limit').value = ai.daily_limit; CH.forEach((c) => $('c_' + c).checked = ai.channels.includes(c));
+    say($('aMsg'), ai.available ? '' : 'The platform owner still needs to add the Alibaba AI key on the server before the assistant can answer.', ai.available ? undefined : false);
   } catch (e) { say($('aMsg'), e.message, false); }
 }
 async function saveMeta(extra, btnMsg) {
@@ -262,8 +260,8 @@ $('clrM').onclick = () => { $('m_on').checked = false; saveMeta({ access_token: 
 $('saveA').onclick = async () => {
   say($('aMsg'), 'Saving…');
   try {
-    await json('integrations/ai', { method: 'PUT', json: { enabled: $('a_on').checked, channels: CH.filter((c) => $('c_' + c).checked), greeting: $('a_greet').value, persona: $('a_persona').value, handoff_phone: $('a_phone').value, daily_limit: $('a_limit').value, model: $('a_model').value, api_key: $('a_key').value } });
-    $('a_key').value = ''; await loadIntegrations(); say($('aMsg'), 'Saved.', true);
+    await json('integrations/ai', { method: 'PUT', json: { enabled: $('a_on').checked, channels: CH.filter((c) => $('c_' + c).checked), greeting: $('a_greet').value, persona: $('a_persona').value, handoff_phone: $('a_phone').value, daily_limit: $('a_limit').value } });
+    await loadIntegrations(); say($('aMsg'), 'Saved.', true);
   } catch (e) { say($('aMsg'), e.message, false); }
 };
 $('t_go').onclick = async () => {
