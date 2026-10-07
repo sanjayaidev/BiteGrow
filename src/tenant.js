@@ -10,8 +10,25 @@
 // The host comes from req.hostname, which Express fills from X-Forwarded-Host
 // only when "trust proxy" is set, so a client cannot spoof it by itself.
 
-const SELECT = '*, settings:bg_tenant_settings(*), integrations:bg_tenant_integrations(meta_pixel_id, ai_enabled, ai_greeting, ai_channels)';
+const BASE_SELECT = '*, settings:bg_tenant_settings(*)';
+const INTEGRATION_COLS = 'meta_pixel_id, ai_enabled, ai_greeting, ai_channels';
+const SELECT = `${BASE_SELECT}, integrations:bg_tenant_integrations(${INTEGRATION_COLS})`;
 const TENANT_SELECT = SELECT;
+
+// PostgREST cannot embed bg_tenant_integrations when migration 002 has not been run, or when its schema cache is
+// stale (fix: run db/004_reload_schema.sql). The storefront must still load in that case, so the lookup retries
+// without the embed and reads the integrations row separately (missing -> no pixel, assistant off).
+const isRelationshipError = (e) => !!e && (e.code === 'PGRST200' || e.code === 'PGRST205' || /relationship|schema cache|bg_tenant_integrations/i.test(e.message || ''));
+let warnedIntegrations = false;
+async function attachIntegrations(supabase, row) {
+  if (!row) return row;
+  if (!warnedIntegrations) { warnedIntegrations = true; console.warn('bg_tenant_integrations is not visible to the API (run db/002_admin_meta_ai.sql, db/003_ai_alibaba.sql, then db/004_reload_schema.sql). Continuing without it.'); }
+  try {
+    const { data, error } = await supabase.from('bg_tenant_integrations').select(INTEGRATION_COLS).eq('tenant_id', row.id).maybeSingle();
+    row.integrations = error ? null : data;
+  } catch (e) { row.integrations = null; }
+  return row;
+}
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/;
 
 function normalizeHost(h) {
@@ -106,7 +123,11 @@ function createTenantResolver({
 
   const bySlug = (slug) => SLUG_RE.test(slug)
     ? cached('s:' + slug, async () => {
-        const { data, error } = await supabase.from('bg_tenants').select(SELECT).eq('slug', slug).maybeSingle();
+        let { data, error } = await supabase.from('bg_tenants').select(SELECT).eq('slug', slug).maybeSingle();
+        if (error && isRelationshipError(error)) {
+          ({ data, error } = await supabase.from('bg_tenants').select(BASE_SELECT).eq('slug', slug).maybeSingle());
+          if (!error) await attachIntegrations(supabase, data);
+        }
         if (error) throw error;
         return data ? shapeTenant(data) : null;
       })
@@ -114,8 +135,13 @@ function createTenantResolver({
 
   const byDomain = (host) => host
     ? cached('d:' + host, async () => {
-        const { data, error } = await supabase
+        let { data, error } = await supabase
           .from('bg_tenant_domains').select(`tenant:bg_tenants(${SELECT})`).eq('domain', host).maybeSingle();
+        if (error && isRelationshipError(error)) {
+          ({ data, error } = await supabase
+            .from('bg_tenant_domains').select(`tenant:bg_tenants(${BASE_SELECT})`).eq('domain', host).maybeSingle());
+          if (!error && data && data.tenant) await attachIntegrations(supabase, data.tenant);
+        }
         if (error) throw error;
         return data && data.tenant ? shapeTenant(data.tenant) : null;
       })
@@ -165,4 +191,4 @@ function createTenantResolver({
   return { middleware, find, invalidate };
 }
 
-module.exports = { createTenantResolver, publicConfig, shapeTenant, normalizeHost, TENANT_SELECT };
+module.exports = { createTenantResolver, publicConfig, shapeTenant, normalizeHost, TENANT_SELECT, BASE_SELECT };

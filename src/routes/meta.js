@@ -12,7 +12,7 @@
 
 const crypto = require('crypto');
 const express = require('express');
-const { shapeTenant, TENANT_SELECT } = require('../tenant');
+const { shapeTenant, BASE_SELECT } = require('../tenant');
 
 const GRAPH = () => `https://graph.facebook.com/${process.env.META_GRAPH_VERSION || 'v21.0'}`;
 const NON_TEXT_REPLY = 'Thanks! I can read text messages only. Please type your question.';
@@ -71,9 +71,10 @@ function createMetaRouter({ supabase, assistant, secretBox, fetchImpl = (...a) =
     const { data: integ, error } = await supabase.from('bg_tenant_integrations').select('*').eq(col, accountId).eq('meta_enabled', true).maybeSingle();
     if (error) throw error;
     if (!integ) return null;
-    const { data: row, error: tErr } = await supabase.from('bg_tenants').select(TENANT_SELECT).eq('id', integ.tenant_id).maybeSingle();
+    const { data: row, error: tErr } = await supabase.from('bg_tenants').select(BASE_SELECT).eq('id', integ.tenant_id).maybeSingle();
     if (tErr) throw tErr;
     if (!row || row.status !== 'active') return null;
+    row.integrations = integ;                                  // already loaded above, so no relationship embed is needed
     const token = secretBox.decrypt(integ.meta_access_token_enc);
     return token ? { tenant: shapeTenant(row), integ, token } : null;
   }

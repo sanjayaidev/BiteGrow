@@ -134,3 +134,28 @@ test('publicConfig exposes only browser-safe fields', async () => {
   assert.equal(cfg.cardBg, 'img/wood.png');
   assert.ok(!('id' in cfg) && !('orderPrefix' in cfg) && !('timezone' in cfg));
 });
+
+test('lookup still works when the integrations relationship is missing from the API schema cache', async () => {
+  const t = row('redhouse');
+  const seen = [];
+  const db = { from(table) {
+    const q = { filters: {} }; let sel = '';
+    const b = {
+      select(s) { sel = s || ''; return b; },
+      eq(c, v) { q.filters[c] = v; return b; },
+      async maybeSingle() {
+        seen.push(`${table}:${sel.includes('bg_tenant_integrations') ? 'embed' : 'plain'}`);
+        if (table === 'bg_tenant_integrations') return { data: null, error: { code: 'PGRST205', message: 'table missing' } };
+        if (sel.includes('bg_tenant_integrations')) return { data: null, error: { code: 'PGRST200', message: "Could not find a relationship between 'bg_tenants' and 'bg_tenant_integrations' in the schema cache" } };
+        return { data: t, error: null };
+      },
+    };
+    return b;
+  } };
+  const r = createTenantResolver({ supabase: db, defaultTenant: 'redhouse' });
+  const out = await run(r, { hostname: 'localhost' });
+  assert.equal(out.code, 200);
+  assert.equal(out.req.tenant.slug, 'redhouse');
+  assert.equal(out.req.tenant.integrations.assistantOn, false);
+  assert.equal(out.req.tenant.integrations.metaPixelId, null);
+});
