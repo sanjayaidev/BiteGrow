@@ -16,13 +16,13 @@ const multer = require('multer');
 const { mask } = require('../lib/secrets');
 const { templateCsv, planImport, loadExisting, applyImport, exportCsv } = require('../lib/menuImport');
 const { defaultsFor, CHANNELS } = require('../lib/assistant');
+const { isConfigured: aiConfigured } = require('../lib/dashscope');
 const { createMediaRouter } = require('./media');
 
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const str = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : undefined);
 const ORDER_TYPES = ['dine_in', 'pickup', 'delivery'];
 const FEATURE_KEYS = ['ar3d', 'whatsappOrder'];     // "assistant" follows the AI switch, see PUT /integrations/ai
-const AI_MODEL_RE = /^[a-z0-9][a-z0-9.\-_]{2,60}$/i;
 
 function createAdminRouter({ supabase, auth, secretBox, assistant, onTenantChanged = () => {}, onMenuChanged = () => {}, mediaOptions = {} }) {
   const router = express.Router();
@@ -139,14 +139,12 @@ function createAdminRouter({ supabase, auth, secretBox, assistant, onTenantChang
     },
     ai: {
       enabled: !!i.ai_enabled,
-      model: i.ai_model,
       persona: i.ai_persona || '',
       greeting: i.ai_greeting || '',
       handoff_phone: i.ai_handoff_phone || '',
       channels: i.ai_channels,
       daily_limit: i.ai_daily_limit,
-      api_key: i.ai_api_key_enc ? mask(secretBox.decrypt(i.ai_api_key_enc) || '????') : '',
-      server_key_available: !!process.env.ANTHROPIC_API_KEY,
+      available: aiConfigured(),                  // false until the server has ALIBABA_API_KEY and ALIBABA_WORKSPACE_ID
     },
   });
 
@@ -204,10 +202,6 @@ function createAdminRouter({ supabase, auth, secretBox, assistant, onTenantChang
     const b = req.body || {};
     const f = {};
     if (b.enabled !== undefined) f.ai_enabled = !!b.enabled;
-    if (b.model !== undefined) {
-      if (typeof b.model !== 'string' || !AI_MODEL_RE.test(b.model.trim())) return res.status(400).json({ error: 'Model name does not look right' });
-      f.ai_model = b.model.trim();
-    }
     if (b.persona !== undefined) { const v = str(b.persona, 2000); if (v === undefined) return res.status(400).json({ error: 'Instructions must be text' }); f.ai_persona = v; }
     if (b.greeting !== undefined) { const v = str(b.greeting, 200); if (v === undefined) return res.status(400).json({ error: 'Greeting must be text' }); f.ai_greeting = v; }
     if (b.handoff_phone !== undefined) {
@@ -224,15 +218,11 @@ function createAdminRouter({ supabase, auth, secretBox, assistant, onTenantChang
       if (!Number.isInteger(n) || n < 0 || n > 100000) return res.status(400).json({ error: 'Daily limit must be a whole number from 0 to 100000' });
       f.ai_daily_limit = n;
     }
-    const key = secretField(b.api_key, 'API key', res);
-    if (key.bad) return;
-    if (!key.keep) f.ai_api_key_enc = key.value;
-
     if (!Object.keys(f).length) return res.status(400).json({ error: 'No assistant settings supplied' });
     const cur = await readIntegration(req.tenant.id);
     const next = { ...cur, ...f };
-    if (next.ai_enabled && !next.ai_api_key_enc && !process.env.ANTHROPIC_API_KEY) {
-      return res.status(400).json({ error: 'Add an API key before turning the assistant on' });
+    if (next.ai_enabled && !aiConfigured()) {
+      return res.status(503).json({ error: 'The AI assistant is not set up on this server yet. Ask the platform owner to add the Alibaba key.' });
     }
     await saveIntegration(req.tenant.id, f);
 
@@ -256,7 +246,7 @@ function createAdminRouter({ supabase, auth, secretBox, assistant, onTenantChang
       res.json({ reply: r.text });
     } catch (err) {
       console.error(`[${req.tenant.slug}] assistant test failed:`, err.message);
-      res.status(502).json({ error: 'The AI provider did not answer. Check the API key and model name.' });
+      res.status(502).json({ error: 'The AI provider did not answer. Please try again in a moment.' });
     }
   }));
 

@@ -7,11 +7,11 @@
 //   * Customer text and menu text are passed as data; the system prompt says they cannot change the rules.
 //   * The bot never takes payment or confirms an order. It sends the customer to the ordering page.
 //   * Cost control: input is capped, history is short, and each restaurant has a daily call limit.
+//   * One server-wide AI account (Alibaba Model Studio, see dashscope.js) serves every restaurant.
 
 const { pick } = require('../render');
+const { callDashScopeChat } = require('./dashscope');
 
-const API_URL = 'https://api.anthropic.com/v1/messages';
-const API_VERSION = '2023-06-01';
 const MAX_INPUT = 500;
 const MAX_HISTORY = 12;          // messages kept per contact
 const MAX_TOKENS = 400;
@@ -20,7 +20,7 @@ const MENU_TTL_MS = 60_000;
 const CHANNELS = ['web', 'whatsapp', 'instagram', 'facebook'];
 
 const defaultsFor = () => ({
-  ai_enabled: false, ai_provider: 'anthropic', ai_model: 'claude-haiku-4-5-20251001', ai_api_key_enc: null,
+  ai_enabled: false,
   ai_persona: '', ai_greeting: '', ai_handoff_phone: null, ai_channels: ['web'], ai_daily_limit: 500,
 });
 
@@ -52,7 +52,7 @@ function buildSystemPrompt(tenant, cfg, menuText) {
   return lines.join('\n');
 }
 
-function createAssistant({ supabase, secretBox, fetchImpl = (...a) => fetch(...a), now = Date.now }) {
+function createAssistant({ supabase, chat = callDashScopeChat, now = Date.now }) {
   const menuCache = new Map();    // tenantId -> { at, text }
 
   async function menuText(tenant) {
@@ -100,21 +100,6 @@ function createAssistant({ supabase, secretBox, fetchImpl = (...a) => fetch(...a
     return Array.isArray(data && data.messages) ? data.messages : [];
   }
 
-  async function callModel(cfg, system, messages) {
-    const key = (cfg.ai_api_key_enc && secretBox.decrypt(cfg.ai_api_key_enc)) || process.env.ANTHROPIC_API_KEY;
-    if (!key) throw new Error('No AI key configured');
-    const res = await fetchImpl(API_URL, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': API_VERSION },
-      body: JSON.stringify({ model: cfg.ai_model, max_tokens: MAX_TOKENS, system, messages }),
-    });
-    if (!res.ok) throw new Error(`AI provider returned ${res.status}`);
-    const body = await res.json();
-    const text = (body.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim();
-    if (!text) throw new Error('AI provider returned no text');
-    return text;
-  }
-
   // -> { text } on success; { disabled: true } when the bot is off for this restaurant/channel; { limited: true } over quota.
   async function reply({ tenant, channel, contactId, text }) {
     if (!CHANNELS.includes(channel)) throw new Error('Unknown channel');
@@ -132,7 +117,7 @@ function createAssistant({ supabase, secretBox, fetchImpl = (...a) => fetch(...a
     while (messages.length && messages[0].role !== 'user') messages.shift();   // API needs to start with a user turn
 
     const system = buildSystemPrompt(tenant, cfg, await menuText(tenant));
-    const answer = await callModel(cfg, system, messages);
+    const answer = await chat([{ role: 'system', content: system }, ...messages], { maxTokens: MAX_TOKENS });
 
     const saved = [...messages, { role: 'assistant', content: answer }].slice(-MAX_HISTORY);
     const { error } = await supabase.from('bg_chat_sessions').upsert(

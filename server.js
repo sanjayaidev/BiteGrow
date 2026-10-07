@@ -43,7 +43,7 @@ const resolver = createTenantResolver({
 const storefront = createStorefront({ supabase, reloadTemplate: !PRODUCTION });
 const auth = createAuth({ supabase });
 const secretBox = createSecretBox();
-const assistant = createAssistant({ supabase, secretBox });
+const assistant = createAssistant({ supabase });
 
 const app = express();
 // Hosting platforms put the app behind a proxy; trusting its hop count gives real client IPs and hostnames.
