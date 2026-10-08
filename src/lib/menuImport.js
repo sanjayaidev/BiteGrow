@@ -29,8 +29,17 @@ function parseBool(v, dflt) {
   return { error: true };
 }
 
-// https URLs, or paths inside the site (img/a.png, /img/a.png). Never javascript:, data:, etc.
-const okUrl = (u) => /^https?:\/\/[^\s]+$/i.test(u) || /^(?!.*:)[\w\-./%]+$/.test(u);
+// https URLs, or paths inside the site (img/a.png, /img/a.png). Never javascript:, data:, http:, //host, ../ or
+// anything containing a quote, angle bracket, backtick or backslash (those could break out of an HTML attribute).
+const BAD_URL_CHARS = /[\s"'<>`\\]/;
+function okUrl(u) {
+  if (typeof u !== 'string' || !u || u.length > 600 || BAD_URL_CHARS.test(u)) return false;
+  if (/^https:\/\//i.test(u)) {
+    try { const p = new URL(u); return p.protocol === 'https:' && !!p.hostname && !p.username && !p.password; } catch (e) { return false; }
+  }
+  if (u.startsWith('//') || u.split('/').includes('..')) return false;
+  return /^(?!.*:)[\w\-./%]+$/.test(u);
+}
 
 function templateCsv(tenant) {
   const extra = tenant.languages.filter((l) => l !== tenant.defaultLang);

@@ -363,7 +363,7 @@ renderList();
 
 /* ================= ACCOUNT, BASKET, CHECKOUT, ORDER TRACKING =================
    Guests keep the basket in this browser; a signed-in customer's basket is saved on the server (/api/cart) and a guest
-   basket is folded in at sign-in. Orders are placed by WhatsApp message to the restaurant's number. */
+   basket is folded in at sign-in. Orders are saved by the server (POST /api/orders); WhatsApp is an optional follow-up message. */
 const TYPES = CFG.orderTypes && CFG.orderTypes.length ? CFG.orderTypes : ['dine_in', 'pickup', 'delivery'];
 const TYPE_LABEL = { dine_in: 'Dine-in', pickup: 'Pickup', delivery: 'Delivery' };
 const store = {
@@ -443,10 +443,10 @@ function loadViewer() {
 }
 function openItem(id) {
   const i = byId(id);
-  let media = `<img class="big" src="${img(i)}" alt="${esc(i.name)}">`;
+  let media = `<img class="big" src="${esc(img(i))}" alt="${esc(i.name)}">`;
   if (FEAT.ar3d && i.model) {
     loadViewer();   // only fetched the first time someone opens a 3D dish
-    media = `<model-viewer src="${esc(modelSrc(i.model))}" poster="${img(i)}" alt="${esc(i.name)}" ar ar-modes="webxr scene-viewer quick-look" camera-controls auto-rotate shadow-intensity="1" environment-image="neutral" interaction-prompt="none"><button slot="ar-button" class="ar-btn">View on your table</button></model-viewer>`;
+    media = `<model-viewer src="${esc(modelSrc(i.model))}" poster="${esc(img(i))}" alt="${esc(i.name)}" ar ar-modes="webxr scene-viewer quick-look" camera-controls auto-rotate shadow-intensity="1" environment-image="neutral" interaction-prompt="none"><button slot="ar-button" class="ar-btn">View on your table</button></model-viewer>`;
   }
   const facts = [i.rating ? i.rating.toFixed(1) + ' ★' : '', i.cal != null ? i.cal + ' kcal' : ''].filter(Boolean).join(' · ');
   open(`${media} <h3>${esc(i.name)}</h3> <p class="muted">${esc(i.desc)}</p> <div class="line"><span>${facts}</span><b style="color:var(--gold)">${money(i.price)}</b></div> <button class="btn" data-add="${i.id}">Add to basket</button> <button class="btn ghost" data-close>Close</button>`);
@@ -474,16 +474,11 @@ function openCheckout(prev = {}) {
     ${field('c_notes', 'Notes (optional)', { value: prev.notes, attrs: 'maxlength="300"' })}
     <div class="line"><span>Subtotal</span><span>${money(sub)}</span></div>${fee ? `<div class="line"><span>Delivery</span><span>${money(fee)}</span></div>` : ''}
     <div class="total"><span>Total</span><span>${money(sub + fee)}</span></div>${MSG}
-    ${waEnabled() ? '<button class="btn wa" data-act="place">Order on WhatsApp</button>' : '<p class="fmsg">Online ordering is not available right now. Please contact the restaurant.</p>'}<button class="btn ghost" data-act="basket">Back to basket</button>`);
+    <button class="btn" data-act="place">Place order</button><button class="btn ghost" data-act="basket">Back to basket</button>`);
 }
-const waNumber = () => String(CFG.whatsappNumber || '').replace(/\D/g, '');
-const waEnabled = () => !!waNumber() && FEAT.whatsappOrder !== false;
-function clearBasket() {
-  basket.clear(); saveCart(); badge();
-  if (session) api('/api/cart', { method: 'DELETE' }).catch(() => {});
-}
-// Orders are placed by WhatsApp message to the restaurant's own number (CFG.whatsappNumber, set per restaurant in admin).
-function placeOrder() {
+// The server saves the order (prices are re-read from its own menu) and, when the restaurant has WhatsApp ordering on,
+// returns a ready-made message link. The customer sends that message with a tap, because browsers block pop-ups opened after a wait.
+async function placeOrder() {
   const f = readForm(), type = cardEl.querySelector('[data-type].on').dataset.type;
   if (!f.name) throw new Error('Your name is required');
   if (type !== 'dine_in' && !f.phone) throw new Error('A phone number is required');
@@ -491,24 +486,27 @@ function placeOrder() {
   if (type === 'delivery' && !f.addr) throw new Error('A delivery address is required');
   const table = type === 'dine_in' ? (tableInfo ? tableInfo.label : f.table) : '';
   if (type === 'dine_in' && !table) throw new Error('Table number is required for dine-in');
-  const lines = cartLines(), sub = cartTotal(), fee = type === 'delivery' ? Number(CFG.deliveryFee || 0) : 0;
-  const text = [
-    `${CFG.brand || 'New'} order`,
-    `Type: ${TYPE_LABEL[type] || type}${table ? ` (table ${table})` : ''}`,
-    `Name: ${f.name}`,
-    ...(f.phone ? [`Phone: ${f.phone}`] : []),
-    ...(type === 'delivery' ? [`Address: ${f.addr}`] : []),
-    '',
-    ...lines.map(([id, q]) => `${q} x ${byId(id).name} - ${money(byId(id).price * q)}`),
-    '',
-    `Subtotal: ${money(sub)}`,
-    ...(fee ? [`Delivery: ${money(fee)}`] : []),
-    `Total: ${money(sub + fee)}`,
-    ...(f.notes ? ['', `Notes: ${f.notes}`] : []),
-  ].join('\n');
-  const url = `https://wa.me/${waNumber()}?text=${encodeURIComponent(text)}`;
-  if (!window.open(url, '_blank', 'noopener')) location.href = url;   // popup blocked: go there in this tab
-  open(`<h3>Almost done</h3><p class="muted">WhatsApp opened with your order. Press <b>Send</b> there to place it with ${esc(CFG.brand || 'the restaurant')}.</p><a class="btn wa" href="${esc(url)}" target="_blank" rel="noopener">Open WhatsApp again</a><button class="btn ghost" data-act="sent">I've sent it</button><button class="btn ghost" data-act="basket">Back to basket</button>`);
+  const body = {
+    order_type: type, customer_name: f.name, customer_phone: f.phone, delivery_address: type === 'delivery' ? f.addr : '', notes: f.notes,
+    items: cartLines().map(([id, q]) => ({ menu_item_id: id, quantity: q })),
+  };
+  if (type === 'dine_in') { if (tableInfo) body.table_token = tableInfo.token; else body.table_label = table; }
+
+  let o;
+  try { o = await api('/api/orders', { method: 'POST', body }); }
+  catch (e) {
+    if (e.data && Array.isArray(e.data.unavailable) && e.data.unavailable.length) {
+      // Dishes that were hidden or sold out since the page loaded: drop them so the next attempt can go through.
+      e.data.unavailable.forEach(id => basket.delete(id)); saveCart(); badge();
+      throw new Error('Some dishes are no longer available and were removed from your basket. Please review it and try again.');
+    }
+    throw e;
+  }
+  basket.clear(); saveCart(); badge();   // the server also empties a signed-in customer's saved basket
+  const wa = o.whatsapp_url && /^https:\/\/wa\.me\//.test(o.whatsapp_url) ? o.whatsapp_url : '';
+  open(`<h3>Order placed</h3><p class="muted">Your order number is <b>${esc(o.order_number)}</b>. Total ${money(o.total)}${o.payment_status === 'unpaid' ? ', to pay at the restaurant' : ''}.</p>
+    ${wa ? `<p class="muted">Tap below to also send the details to ${esc(CFG.brand || 'the restaurant')} on WhatsApp.</p><a class="btn wa" href="${esc(wa)}" target="_blank" rel="noopener">Send on WhatsApp</a>` : ''}
+    <button class="btn ghost" data-act="done">Done</button>`);
 }
 
 /* ---- account ---- */
@@ -542,8 +540,8 @@ const ACTS = {
   async forgot() { await post('/api/auth/request-password-reset', { email: val('f_email') }); say('If that email has an account, a reset link is on its way.', true); },
   async save() { const j = await api('/api/auth/me', { method: 'PATCH', body: { display_name: val('p_name'), phone: val('p_phone'), address: val('p_addr') } }); me.profile = j.profile; say('Saved', true); },
   async out() { signedOut(); basket.clear(); saveCart(); badge(); close(); toast('Signed out'); },
-  async place() { placeOrder(); },
-  async sent() { clearBasket(); close(); toast('Thanks! Your order is on its way'); },
+  async place() { await placeOrder(); },
+  async done() { close(); toast('Thanks! We have your order'); },
   async basket() { openBasket(); },
 };
 

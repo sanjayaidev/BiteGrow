@@ -21,6 +21,7 @@ const { createAuthRouter } = require('./src/routes/auth');
 const { createCartRouter } = require('./src/routes/cart');
 const { createOrdersRouter } = require('./src/routes/orders');
 const { createAdminRouter } = require('./src/routes/admin');
+const { createOrdersAdminRouter } = require('./src/routes/ordersAdmin');
 const { createMetaRouter } = require('./src/routes/meta');
 const { createAssistantRouter } = require('./src/routes/assistant');
 const { createAssistant } = require('./src/lib/assistant');
@@ -62,6 +63,9 @@ app.use('/webhooks/meta', createMetaRouter({ supabase, assistant, secretBox }));
 
 // The admin page is a static shell; it signs in through /api/auth and every /api/admin call re-checks the role.
 app.get(['/admin', '/admin.html'], (req, res) => res.set('Cache-Control', 'no-store').sendFile(path.join(PUBLIC_DIR, 'admin.html')));
+
+// index.html is only a template for the renderer; served as a file it would show an unfilled page.
+app.get('/index.html', (req, res) => res.redirect(301, '/'));
 
 // Static assets are shared by all tenants and need no database lookup, so they are served before tenant
 // resolution. index:false leaves "/" to the renderer. Videos support Range requests (needed for seeking).
@@ -111,6 +115,8 @@ app.use('/api/auth', createAuthRouter({ supabase, auth }));
 app.use('/api/cart', createCartRouter({ supabase, auth }));
 app.use('/api', createOrdersRouter({ supabase, auth }));       // /api/orders, /api/orders/:number, /api/table/:token
 
+// The order desk is open to kitchen staff as well, so it mounts before the owner/admin-only router below.
+app.use('/api/admin/orders', createOrdersAdminRouter({ supabase, auth }));
 app.use('/api/admin', createAdminRouter({ supabase, auth, secretBox, assistant, onTenantChanged, onMenuChanged }));
 app.use('/api/assistant', createAssistantRouter({ assistant }));
 
@@ -127,9 +133,17 @@ app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
 app.use((req, res) => res.status(404).type('text').send('Not found'));
 
 app.use((err, req, res, next) => {
-  console.error(`[${req.tenant ? req.tenant.slug : 'no-tenant'}] ${req.method} ${req.originalUrl}:`, err && err.stack || err);
   if (res.headersSent) return next(err);
   const wantsJson = req.originalUrl.startsWith('/api');
+  // Bad input from the client (malformed JSON, body too large) is the client's mistake, not a server fault:
+  // answer 4xx and skip the stack trace. Everything else is a real error.
+  const clientStatus = err && Number.isInteger(err.status) && err.status >= 400 && err.status < 500 && err.expose ? err.status : 0;
+  if (clientStatus) {
+    const message = clientStatus === 413 ? 'That request is too large' : 'The request could not be read';
+    res.status(clientStatus);
+    return wantsJson ? res.json({ error: message }) : res.type('text').send(message);
+  }
+  console.error(`[${req.tenant ? req.tenant.slug : 'no-tenant'}] ${req.method} ${req.originalUrl}:`, err && err.stack || err);
   res.status(500);
   return wantsJson ? res.json({ error: 'Server error' }) : res.type('text').send('Something went wrong. Please try again.');
 });

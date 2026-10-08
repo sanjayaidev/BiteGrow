@@ -47,6 +47,13 @@ dialog{background:var(--surface);color:var(--text);border:1px solid var(--line);
 dialog::backdrop{background:rgba(0,0,0,.65)}dialog h2{margin-top:0}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}.lang{margin-top:14px;padding-top:8px;border-top:1px solid var(--line)}.lang h3{margin:0;font-size:12px;color:var(--gold);letter-spacing:.08em}
 .imgf{display:flex;gap:10px;align-items:center;margin-top:6px}.imgf .th{width:56px;height:56px}.imgf .col{flex:1;min-width:0}
+.ord{border-top:1px solid var(--line);padding:12px 0}.ord:first-child{border-top:0}
+.ord .top{display:flex;justify-content:space-between;gap:10px;align-items:baseline;flex-wrap:wrap}.ord .top b{font-size:15px}
+.ord .meta{color:var(--muted);font-size:12px;margin:2px 0 6px}.ord ul{margin:6px 0;padding-left:18px;font-size:13px}.ord .note{font-size:13px;color:var(--gold);margin:4px 0}
+.ord .acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}.ord .acts button{padding:6px 12px;font-size:13px}
+.st{display:inline-block;font-size:11px;border:1px solid var(--line);border-radius:999px;padding:1px 8px;margin-right:4px}.st.new{color:#1a1408;background:var(--gold);border-color:var(--gold)}
+.st.pending{color:var(--gold)}.st.ready{color:var(--ok)}.st.cancelled{color:var(--bad)}.st.paid{color:var(--ok)}
+.seg{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}.seg button{background:none;border:1px solid var(--line);color:var(--muted);border-radius:999px;padding:5px 12px;font:inherit;font-size:13px;cursor:pointer}.seg button[aria-pressed=true]{color:#1a1408;background:var(--gold);border-color:var(--gold)}
 [hidden]{display:none!important}
 </style></head><body><main>
 
@@ -62,14 +69,28 @@ dialog::backdrop{background:rgba(0,0,0,.65)}dialog h2{margin-top:0}
 <div id="app" hidden>
 <header><h1 id="title">Restaurant admin</h1><span><a href="/">View site</a> · <button class="link" id="out">Sign out</button></span></header>
 <nav role="tablist" id="tabs">
-  <button role="tab" data-t="menu" aria-selected="true">Menu</button>
+  <button role="tab" data-t="orders" aria-selected="true">Orders</button>
+  <button role="tab" data-t="menu" aria-selected="false">Menu</button>
   <button role="tab" data-t="settings" aria-selected="false">Restaurant</button>
   <button role="tab" data-t="media" aria-selected="false">Homepage</button>
   <button role="tab" data-t="meta" aria-selected="false">Meta</button>
   <button role="tab" data-t="ai" aria-selected="false">Assistant</button>
 </nav>
 
-<div data-p="menu">
+<div data-p="orders">
+<section>
+  <div class="head"><h2>Orders</h2><button class="quiet" id="ordRefresh">Refresh</button></div>
+  <p>New orders appear here by themselves. Move each order along as the kitchen works on it.</p>
+  <div class="seg" id="ordFilter" role="group" aria-label="Show orders">
+    <button type="button" data-f="active" aria-pressed="true">In progress</button>
+    <button type="button" data-f="done" aria-pressed="false">Finished</button>
+    <button type="button" data-f="all" aria-pressed="false">All</button>
+  </div>
+  <div id="ords">Loading…</div><div class="msg" id="ordMsg" role="status"></div>
+</section>
+</div>
+
+<div data-p="menu" hidden>
 <section>
   <div class="head"><h2>Categories</h2><button class="primary" id="catAdd">Add category</button></div>
   <div class="list" id="cats">Loading…</div><div class="msg" id="catMsg" role="status"></div>
@@ -206,6 +227,7 @@ async function json(path, opts) {
 
 function signOut() { store.set('bg_at', ''); store.set('bg_rt', ''); $('app').hidden = true; $('login').hidden = false; }
 
+let kitchenOnly = false;
 async function start() {
   if (!store.get('bg_at')) return signOut();
   try {
@@ -213,10 +235,14 @@ async function start() {
     if (r.status === 401 && await refresh()) r = await fetch('/api/auth/me', { headers: { authorization: 'Bearer ' + store.get('bg_at') } });
     if (!r.ok) return signOut();
     const me = await r.json();
-    if (!['owner', 'admin', 'super'].includes(me.staff)) { signOut(); say($('loginMsg'), 'This account is not an owner or admin of this restaurant.', false); return; }
+    if (!['owner', 'admin', 'super', 'staff'].includes(me.staff)) { signOut(); say($('loginMsg'), 'This account is not staff of this restaurant.', false); return; }
+    kitchenOnly = me.staff === 'staff';
   } catch (e) { return signOut(); }
   $('login').hidden = true; $('app').hidden = false;
-  loadSettings(); loadIntegrations(); loadMedia(); loadMenu();
+  // Kitchen staff only work with orders; the settings, menu and integrations stay with owners and admins.
+  document.querySelectorAll('#tabs button').forEach((b) => { b.hidden = kitchenOnly && b.dataset.t !== 'orders'; });
+  if (!kitchenOnly) { loadSettings(); loadIntegrations(); loadMedia(); loadMenu(); }
+  startOrders();
   const cfg = await fetch('/api/config').then((r) => r.json()).catch(() => ({})); if (cfg.brand) $('title').textContent = cfg.brand + ' admin';
 }
 
@@ -538,5 +564,62 @@ $('t_go').onclick = async () => {
   try { $('t_out').textContent = (await json('integrations/ai/test', { method: 'POST', json: { message: m } })).reply; }
   catch (e) { $('t_out').textContent = e.message; }
 };
+// ---- orders
+const ORD_LABEL = { pending: 'New', confirmed: 'Confirmed', preparing: 'Preparing', ready: 'Ready', completed: 'Completed', cancelled: 'Cancelled' };
+const ORD_ACTION = { confirmed: 'Confirm', preparing: 'Start preparing', ready: 'Mark ready', completed: 'Complete', cancelled: 'Cancel order' };
+const TYPE_NAME = { dine_in: 'Dine-in', pickup: 'Pickup', delivery: 'Delivery' };
+const O = { filter: 'active', seen: null, fresh: new Set(), timer: 0, busy: false };
+const ordMoney = (o, n) => (M.cur || '') + Number(n).toFixed(2);
+function ordTime(iso) { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); }
+function renderOrders(list) {
+  const fresh = (o) => O.fresh.has(o.id);
+  $('ords').innerHTML = list.length ? list.map((o) => `<div class="ord" data-id="${o.id}">
+    <div class="top"><b>${esc(o.order_number)}</b><span>${fresh(o) ? '<span class="st new">New</span>' : ''}<span class="st ${esc(o.status)}">${esc(ORD_LABEL[o.status] || o.status)}</span><span class="st ${o.payment_status === 'paid' ? 'paid' : ''}">${esc(o.payment_status)}</span></span></div>
+    <div class="meta">${esc(TYPE_NAME[o.order_type] || o.order_type)}${o.table_label ? ' · table ' + esc(o.table_label) : ''} · ${esc(ordTime(o.created_at))} · ${esc(o.customer_name)}${o.customer_phone ? ' · <a href="tel:' + esc(String(o.customer_phone).replace(/[^\d+]/g, '')) + '">' + esc(o.customer_phone) + '</a>' : ''}</div>
+    ${o.delivery_address ? `<div class="meta">Deliver to: ${esc(o.delivery_address)}</div>` : ''}
+    <ul>${o.items.map((i) => `<li>${i.quantity} × ${esc(i.name)}</li>`).join('')}</ul>
+    ${o.notes ? `<div class="note">Note: ${esc(o.notes)}</div>` : ''}
+    <div class="meta">Total <b style="color:var(--text)">${esc(ordMoney(o, o.total))}</b>${o.delivery_fee ? ` (delivery ${esc(ordMoney(o, o.delivery_fee))})` : ''}</div>
+    <div class="acts">${o.next_statuses.filter((n) => n !== 'cancelled').map((n) => `<button class="primary" data-st="${n}">${esc(ORD_ACTION[n] || n)}</button>`).join('')}${o.next_payment.includes('paid') && o.status !== 'cancelled' ? '<button class="quiet" data-pay="paid">Mark paid</button>' : ''}${o.next_payment.includes('refunded') ? '<button class="quiet" data-pay="refunded">Mark refunded</button>' : ''}${o.next_statuses.includes('cancelled') ? '<button class="quiet" data-st="cancelled" style="color:var(--bad)">Cancel order</button>' : ''}</div>
+  </div>`).join('') : `<p>${O.filter === 'active' ? 'No orders in progress.' : 'No orders to show.'}</p>`;
+}
+async function loadOrders(quiet) {
+  if (O.busy) return; O.busy = true;
+  try {
+    if (!M.cur) M.cur = (await fetch('/api/config').then((r) => r.json()).catch(() => ({}))).currency || '';
+    const j = await json('orders?status=' + O.filter);
+    // Orders that were not on screen at the previous refresh are flagged "New" until the filter changes.
+    const added = O.seen ? j.orders.filter((o) => !O.seen.has(o.id)) : [];
+    added.forEach((o) => O.fresh.add(o.id));
+    O.seen = new Set(j.orders.map((o) => o.id));
+    renderOrders(j.orders);
+    if (added.length && document.hidden) document.title = `(${added.length}) New order · ` + document.title.replace(/^\(\d+\) New order · /, '');
+    say($('ordMsg'), '');
+  } catch (e) { say($('ordMsg'), e.message, false); }
+  finally { O.busy = false; }
+}
+function startOrders() {
+  O.seen = null; O.fresh.clear(); loadOrders();
+  clearInterval(O.timer);
+  O.timer = setInterval(() => { if (!document.hidden && !$('app').hidden) loadOrders(true); }, 20000);
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { document.title = document.title.replace(/^\(\d+\) New order · /, ''); if (!$('app').hidden) loadOrders(true); } });
+$('ordRefresh').onclick = () => loadOrders();
+$('ordFilter').onclick = (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  O.filter = b.dataset.f; O.seen = null; O.fresh.clear();
+  document.querySelectorAll('#ordFilter button').forEach((x) => x.setAttribute('aria-pressed', x === b));
+  loadOrders();
+};
+$('ords').onclick = async (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  const card = b.closest('.ord'); const id = card && card.dataset.id; if (!id) return;
+  const body = b.dataset.st ? { status: b.dataset.st } : b.dataset.pay ? { payment_status: b.dataset.pay } : null; if (!body) return;
+  if (body.status === 'cancelled' && !confirm('Cancel this order?')) return;
+  card.querySelectorAll('button').forEach((x) => { x.disabled = true; });
+  try { await json('orders/' + encodeURIComponent(id), { method: 'PATCH', json: body }); await loadOrders(); say($('ordMsg'), 'Order updated.', true); }
+  catch (err) { say($('ordMsg'), err.message, false); await loadOrders(); }
+};
+
 start();
 </script></main></body></html>
