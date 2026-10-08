@@ -18,6 +18,7 @@ const { templateCsv, planImport, loadExisting, applyImport, exportCsv } = requir
 const { defaultsFor, CHANNELS } = require('../lib/assistant');
 const { isConfigured: aiConfigured } = require('../lib/dashscope');
 const { createMediaRouter } = require('./media');
+const { createMenuAdminRouter } = require('./menuAdmin');
 
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const str = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : undefined);
@@ -30,6 +31,9 @@ function createAdminRouter({ supabase, auth, secretBox, assistant, onTenantChang
   router.use(auth.requireStaff(['owner', 'admin']));
 
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 1024 * 1024, files: 1 } });
+
+  // ---- per-dish and per-category editing (/categories, /items) -----------
+  router.use('/', createMenuAdminRouter({ supabase, onMenuChanged }));
 
   // ---- homepage videos ---------------------------------------------------
   router.use('/media', createMediaRouter({ supabase, onMediaChanged: onMenuChanged, ...mediaOptions }));

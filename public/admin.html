@@ -36,6 +36,17 @@ progress{width:100%;height:8px;margin-top:10px;accent-color:var(--gold)}
 .slot{border-top:1px solid var(--line);margin-top:16px;padding-top:4px}.slot:first-of-type{border-top:0;margin-top:8px}
 .wa{display:flex;gap:8px}.wa select{width:150px;flex:none}
 a.quiet{display:inline-block;text-decoration:none;background:none;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:9px 16px}
+section .head{display:flex;justify-content:space-between;align-items:center;gap:10px}section .head h2{margin:0}
+.tools{display:flex;gap:8px;margin:12px 0}.tools input{flex:2}.tools select{flex:1}
+.list{margin-top:8px}.rw{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line)}.rw:first-child{border-top:0}
+.rw .grow{flex:1;min-width:0}.rw b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.rw small{color:var(--muted);font-size:12px}
+.rw button{padding:6px 12px;font-size:13px}.rw .sw{display:flex;gap:6px;align-items:center;font-size:12px;color:var(--muted)}.rw .sw input{width:auto}
+.th{width:44px;height:44px;border-radius:8px;object-fit:cover;background:var(--field);flex:none}
+.tag{display:inline-block;font-size:11px;border:1px solid var(--line);border-radius:999px;padding:0 7px;margin-left:4px;color:var(--gold)}.tag.off{color:var(--bad)}
+dialog{background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:12px;padding:18px;width:min(560px,94vw);max-height:90vh;overflow:auto}
+dialog::backdrop{background:rgba(0,0,0,.65)}dialog h2{margin-top:0}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}.lang{margin-top:14px;padding-top:8px;border-top:1px solid var(--line)}.lang h3{margin:0;font-size:12px;color:var(--gold);letter-spacing:.08em}
+.imgf{display:flex;gap:10px;align-items:center;margin-top:6px}.imgf .th{width:56px;height:56px}.imgf .col{flex:1;min-width:0}
 [hidden]{display:none!important}
 </style></head><body><main>
 
@@ -59,6 +70,16 @@ a.quiet{display:inline-block;text-decoration:none;background:none;color:var(--te
 </nav>
 
 <div data-p="menu">
+<section>
+  <div class="head"><h2>Categories</h2><button class="primary" id="catAdd">Add category</button></div>
+  <div class="list" id="cats">Loading…</div><div class="msg" id="catMsg" role="status"></div>
+</section>
+<section>
+  <div class="head"><h2>Dishes</h2><button class="primary" id="itAdd">Add dish</button></div>
+  <div class="tools"><input type="text" id="itQ" placeholder="Search dishes" aria-label="Search dishes"><select id="itCat" aria-label="Filter by category"></select></div>
+  <div class="list" id="items">Loading…</div><div class="msg" id="itMsg" role="status"></div>
+</section>
+<dialog id="dlg" aria-labelledby="dTitle"></dialog>
 <section>
   <h2>Import menu from CSV</h2>
   <p>Rows are matched by item name: matches are updated, new names are added, and new categories are created. Nothing is changed if any row has a problem.</p>
@@ -195,7 +216,7 @@ async function start() {
     if (!['owner', 'admin', 'super'].includes(me.staff)) { signOut(); say($('loginMsg'), 'This account is not an owner or admin of this restaurant.', false); return; }
   } catch (e) { return signOut(); }
   $('login').hidden = true; $('app').hidden = false;
-  loadSettings(); loadIntegrations(); loadMedia();
+  loadSettings(); loadIntegrations(); loadMedia(); loadMenu();
   const cfg = await fetch('/api/config').then((r) => r.json()).catch(() => ({})); if (cfg.brand) $('title').textContent = cfg.brand + ' admin';
 }
 
@@ -231,6 +252,7 @@ async function importCsv(dry) {
   try {
     const j = await json('menu/import' + (dry ? '?dry_run=1' : ''), { method: 'POST', body: fd });
     say($('impMsg'), (dry ? 'File is valid. If you import it: ' : 'Imported. ') + `${j.created} new, ${j.updated} updated, ${j.categories_created} new categories.`, true);
+    if (!dry) loadMenu();
   } catch (e) {
     say($('impMsg'), e.message + (e.body && e.body.error_count > 50 ? ` Showing the first 50 of ${e.body.error_count}.` : ''), false);
     for (const x of (e.body && e.body.errors) || []) { const li = document.createElement('li'); li.textContent = `Line ${x.line}: ${x.message}`; $('impErrs').appendChild(li); }
@@ -361,6 +383,124 @@ $('saveSp').onclick = async () => {
   try { await json('media/special-items', { method: 'PUT', json: { item_ids: ids } }); say($('spMsg'), 'Saved.', true); }
   catch (e) { say($('spMsg'), e.message, false); }
 };
+
+// ---- Categories and dishes (per-item editing)
+const M = { cats: [], items: [], langs: ['en'], def: 'en', cur: '' };
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const nm = (map) => (map && (map[M.def] || Object.values(map)[0])) || '';
+const catName = (id) => { const c = M.cats.find((x) => x.id === id); return c ? nm(c.label) : '—'; };
+const price = (n) => M.cur + Number(n).toFixed(2);
+const dlg = $('dlg');
+const showDlg = (html) => { dlg.innerHTML = html; if (!dlg.open) { dlg.showModal ? dlg.showModal() : dlg.setAttribute('open', ''); } };
+const closeDlg = () => { dlg.close ? dlg.close() : dlg.removeAttribute('open'); };
+const dmsg = (t, ok) => say($('dMsg'), t, ok);
+
+async function loadMenu() {
+  try {
+    if (!M.cur) M.cur = (await fetch('/api/config').then((r) => r.json()).catch(() => ({}))).currency || '';
+    const [c, i] = await Promise.all([json('categories'), json('items')]);
+    M.cats = c.categories; M.items = i.items; M.langs = c.languages; M.def = c.default_lang;
+    renderCats(); renderItems();
+    if (typeof loadSpecial === 'function' && $('sp')) loadSpecial();   // keep the Special-dish pickers in step
+  } catch (e) { $('cats').textContent = e.message; $('items').textContent = ''; }
+}
+function renderCats() {
+  $('cats').innerHTML = M.cats.length ? M.cats.map((c) => `<div class="rw"><div class="grow"><b>${esc(nm(c.label))}</b><small>${esc(c.key)} · ${c.item_count} dish${c.item_count === 1 ? '' : 'es'} · order ${c.sort_order}</small></div><button class="quiet" data-ce="${c.id}">Edit</button><button class="quiet" data-cd="${c.id}">Delete</button></div>`).join('') : '<p>No categories yet. Add one, then add dishes to it.</p>';
+  const keep = $('itCat').value;
+  $('itCat').innerHTML = '<option value="">All categories</option>' + M.cats.map((c) => `<option value="${c.id}">${esc(nm(c.label))}</option>`).join('');
+  $('itCat').value = M.cats.some((c) => String(c.id) === keep) ? keep : '';
+}
+function renderItems() {
+  const q = $('itQ').value.trim().toLowerCase(), cat = $('itCat').value;
+  const list = M.items.filter((i) => (!cat || String(i.category_id) === cat) && (!q || Object.values(i.name).some((n) => n.toLowerCase().includes(q))));
+  $('items').innerHTML = list.length ? list.map((i) => `<div class="rw"><img class="th" alt="" loading="lazy" ${i.image_url ? `src="${esc(i.image_url)}"` : ''}><div class="grow"><b>${esc(nm(i.name))}${i.is_offer ? '<span class="tag">Offer</span>' : ''}${i.is_available ? '' : '<span class="tag off">Hidden</span>'}</b><small>${esc(catName(i.category_id))} · ${price(i.price)}</small></div><label class="sw"><input type="checkbox" data-iv="${i.id}" ${i.is_available ? 'checked' : ''}>Available</label><button class="quiet" data-ie="${i.id}">Edit</button></div>`).join('') : `<p>${M.items.length ? 'No dishes match.' : 'No dishes yet. Add one or import a CSV below.'}</p>`;
+}
+$('itQ').oninput = $('itCat').onchange = renderItems;
+
+// -- category dialog
+function catDialog(c) {
+  showDlg(`<form id="dform"><h2 id="dTitle">${c ? 'Edit category' : 'Add category'}</h2>
+    ${M.langs.map((l) => `<label for="cl_${l}">Name (${l.toUpperCase()})${l === M.def ? '' : ' <small>optional</small>'}</label><input type="text" id="cl_${l}" maxlength="60" value="${esc(c ? c.label[l] : '')}" ${l === M.def ? 'required' : ''}>`).join('')}
+    <div class="grid2"><div><label for="c_key">Key <small>(used in CSV; blank = automatic)</small></label><input type="text" id="c_key" maxlength="40" value="${esc(c ? c.key : '')}"></div>
+    <div><label for="c_sort">Order <small>(lower shows first)</small></label><input type="number" id="c_sort" step="1" value="${c ? c.sort_order : ''}"></div></div>
+    <div class="row"><button class="primary" type="submit">Save</button><button class="quiet" type="button" data-x>Cancel</button></div><div class="msg" id="dMsg" role="status"></div></form>`);
+  $('dform').onsubmit = async (e) => {
+    e.preventDefault();
+    const label = {}; M.langs.forEach((l) => { label[l] = $('cl_' + l).value; });
+    const body = { label }; if ($('c_key').value.trim() || c) body.key = $('c_key').value; if ($('c_sort').value !== '') body.sort_order = Number($('c_sort').value);
+    dmsg('Saving…');
+    try { await json(c ? 'categories/' + c.id : 'categories', { method: c ? 'PATCH' : 'POST', json: body }); closeDlg(); await loadMenu(); say($('catMsg'), 'Category saved.', true); }
+    catch (err) { dmsg(err.message, false); }
+  };
+}
+$('catAdd').onclick = () => catDialog(null);
+$('cats').onclick = async (e) => {
+  const ed = e.target.closest('[data-ce]'), del = e.target.closest('[data-cd]');
+  if (ed) return catDialog(M.cats.find((c) => c.id === +ed.dataset.ce));
+  if (!del) return;
+  const c = M.cats.find((x) => x.id === +del.dataset.cd);
+  if (c.item_count) return say($('catMsg'), `"${nm(c.label)}" still has ${c.item_count} dish${c.item_count === 1 ? '' : 'es'}. Move or delete them first.`, false);
+  if (!confirm(`Delete the category "${nm(c.label)}"?`)) return;
+  try { await json('categories/' + c.id, { method: 'DELETE' }); await loadMenu(); say($('catMsg'), 'Category deleted.', true); } catch (err) { say($('catMsg'), err.message, false); }
+};
+
+// -- dish dialog
+const IMG = [['image_url', 'Photo', 'Shown in lists and on the dish page'], ['bg_image_url', 'Card background', 'Optional picture behind the menu card'], ['food_png_url', 'Food cut-out (PNG)', 'Optional transparent picture drawn over the card']];
+function imgField([k, label, hint], v) {
+  return `<div class="lang"><label for="i_${k}">${label} <small>${hint}</small></label><div class="imgf"><img class="th" alt="" id="p_${k}" ${v ? `src="${esc(v)}"` : ''}><div class="col"><input type="text" id="i_${k}" placeholder="https://… or upload" value="${esc(v)}"><input type="file" id="u_${k}" accept="image/jpeg,image/png,image/webp,image/gif"></div></div></div>`;
+}
+function itemDialog(it) {
+  if (!M.cats.length) return say($('itMsg'), 'Add a category first.', false);
+  const v = it || { name: {}, description: {}, category_id: +($('itCat').value || M.cats[0].id), is_available: true, is_offer: false };
+  showDlg(`<form id="dform"><h2 id="dTitle">${it ? 'Edit dish' : 'Add dish'}</h2>
+    <label for="i_cat">Category</label><select id="i_cat">${M.cats.map((c) => `<option value="${c.id}" ${c.id === v.category_id ? 'selected' : ''}>${esc(nm(c.label))}</option>`).join('')}</select>
+    ${M.langs.map((l) => `<div class="lang"><h3>${l.toUpperCase()}${l === M.def ? ' · main language' : ''}</h3><label for="n_${l}">Name${l === M.def ? '' : ' <small>optional</small>'}</label><input type="text" id="n_${l}" maxlength="120" value="${esc(v.name[l])}" ${l === M.def ? 'required' : ''}><label for="d_${l}">Description <small>optional</small></label><textarea id="d_${l}" rows="2" maxlength="600">${esc(v.description[l])}</textarea></div>`).join('')}
+    <div class="lang grid2"><div><label for="i_price">Price</label><input type="number" id="i_price" min="0" step="0.01" required value="${it ? v.price : ''}"></div><div><label for="i_cal">Calories <small>optional</small></label><input type="number" id="i_cal" min="0" step="1" value="${v.calories == null ? '' : v.calories}"></div>
+    <div><label for="i_rate">Rating 0-5 <small>optional</small></label><input type="number" id="i_rate" min="0" max="5" step="0.1" value="${v.rating == null ? '' : v.rating}"></div><div><label for="i_pop">Popularity</label><input type="number" id="i_pop" min="0" step="1" value="${v.popularity || 0}"></div>
+    <div><label for="i_sort">Order <small>(lower shows first)</small></label><input type="number" id="i_sort" step="1" placeholder="last" value="${it ? v.sort_order : ''}"></div></div>
+    <div class="check"><input type="checkbox" id="i_av" ${v.is_available ? 'checked' : ''}><label for="i_av" style="margin:0">Available on the menu</label></div>
+    <div class="check"><input type="checkbox" id="i_off" ${v.is_offer ? 'checked' : ''}><label for="i_off" style="margin:0">Show an Offer badge</label></div>
+    ${IMG.map((f) => imgField(f, v[f[0]] || '')).join('')}
+    <div class="lang"><label for="i_model_url">3D model <small>link to a .glb file (optional)</small></label><input type="text" id="i_model_url" value="${esc(v.model_url || '')}"></div>
+    <div class="row"><button class="primary" type="submit">Save</button><button class="quiet" type="button" data-x>Cancel</button>${it ? '<button class="quiet" type="button" data-del style="margin-left:auto;color:var(--bad)">Delete dish</button>' : ''}</div><div class="msg" id="dMsg" role="status"></div></form>`);
+
+  for (const [k] of IMG) {
+    $('i_' + k).oninput = () => { $('p_' + k).src = $('i_' + k).value; };
+    $('u_' + k).onchange = async (e) => {
+      const f = e.target.files[0]; if (!f) return;
+      if (f.size > 5 * 1024 * 1024) { e.target.value = ''; return dmsg('The image must be smaller than 5 MB.', false); }
+      dmsg('Uploading image…'); const fd = new FormData(); fd.append('image', f);
+      try { const r = await api('items/image', { method: 'POST', body: fd }); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'Upload failed');
+        $('i_' + k).value = j.url; $('p_' + k).src = j.url; dmsg('Image uploaded. Press Save to keep it.', true); }
+      catch (err) { dmsg(err.message, false); } finally { e.target.value = ''; }
+    };
+  }
+  $('dform').onsubmit = async (e) => {
+    e.preventDefault();
+    const name = {}, description = {}; M.langs.forEach((l) => { name[l] = $('n_' + l).value; description[l] = $('d_' + l).value; });
+    const body = { category_id: +$('i_cat').value, name, description, price: $('i_price').value, calories: $('i_cal').value === '' ? null : $('i_cal').value, rating: $('i_rate').value === '' ? null : $('i_rate').value,
+      popularity: $('i_pop').value === '' ? 0 : $('i_pop').value, is_available: $('i_av').checked, is_offer: $('i_off').checked, model_url: $('i_model_url').value };
+    IMG.forEach(([k]) => { body[k] = $('i_' + k).value; });
+    if ($('i_sort').value !== '') body.sort_order = Number($('i_sort').value);
+    dmsg('Saving…');
+    try { await json(it ? 'items/' + it.id : 'items', { method: it ? 'PATCH' : 'POST', json: body }); closeDlg(); await loadMenu(); say($('itMsg'), 'Dish saved.', true); }
+    catch (err) { dmsg(err.message, false); }
+  };
+  const del = dlg.querySelector('[data-del]');
+  if (del) del.onclick = async () => {
+    if (!confirm(`Delete "${nm(v.name)}"? Past orders keep their own record of it.`)) return;
+    try { await json('items/' + it.id, { method: 'DELETE' }); closeDlg(); await loadMenu(); say($('itMsg'), 'Dish deleted.', true); } catch (err) { dmsg(err.message, false); }
+  };
+}
+$('itAdd').onclick = () => itemDialog(null);
+$('items').onclick = (e) => { const b = e.target.closest('[data-ie]'); if (b) itemDialog(M.items.find((i) => i.id === +b.dataset.ie)); };
+$('items').onchange = async (e) => {
+  const box = e.target.closest('[data-iv]'); if (!box) return;
+  const it = M.items.find((i) => i.id === +box.dataset.iv);
+  try { await json('items/' + it.id, { method: 'PATCH', json: { is_available: box.checked } }); it.is_available = box.checked; renderItems(); say($('itMsg'), `"${nm(it.name)}" is now ${box.checked ? 'available' : 'hidden'}.`, true); }
+  catch (err) { box.checked = !box.checked; say($('itMsg'), err.message, false); }
+};
+dlg.addEventListener('click', (e) => { if (e.target.closest('[data-x]')) closeDlg(); });
 
 // ---- Meta + assistant
 const CH = ['web', 'whatsapp', 'instagram', 'facebook'];

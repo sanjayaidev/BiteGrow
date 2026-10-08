@@ -222,4 +222,4 @@ async function exportCsv(supabase, tenant) {
   return toCsv(headers, rows);
 }
 
-module.exports = { templateCsv, planImport, loadExisting, applyImport, exportCsv, MAX_ROWS };
+module.exports = { templateCsv, planImport, loadExisting, applyImport, exportCsv, MAX_ROWS, okUrl, slug };
