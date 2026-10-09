@@ -401,10 +401,17 @@ async function api(path, { method = 'GET', body } = {}) {
   return j;
 }
 
+/* ---- Meta Pixel events: window.fbq exists only when the restaurant has set a Pixel ID, so without one these do nothing ---- */
+const track = (event, data) => { try { if (typeof window.fbq === 'function') window.fbq('track', event, data); } catch (_) {} };
+const pixelLines = lines => ({ content_type: 'product', content_ids: lines.map(([id]) => String(id)), num_items: lines.reduce((n, [, q]) => n + q, 0) });
+
 /* ---- basket ---- */
 const saveCart = () => store.set('cart', [...basket]);
 function setQty(id, q) {
+  const before = basket.get(id) || 0;
   q > 0 ? basket.set(id, Math.min(50, q)) : basket.delete(id);
+  const item = byId(id);
+  if ((basket.get(id) || 0) > before && item) track('AddToCart', { content_type: 'product', content_ids: [String(id)], content_name: item.name, value: Number(item.price), currency: CFG.currencyCode });
   saveCart(); badge();
   if (session) api('/api/cart', { method: 'POST', body: { menu_item_id: id, quantity: basket.get(id) || 0 } }).catch(() => {});
 }
@@ -462,6 +469,7 @@ function openBasket() {
 const readForm = () => ({ name: val('c_name'), phone: val('c_phone'), addr: val('c_addr'), notes: val('c_notes'), table: val('c_table') });
 function openCheckout(prev = {}) {
   if (!cartLines().length) return openBasket();
+  if (!prev.type) track('InitiateCheckout', { ...pixelLines(cartLines()), value: cartTotal(), currency: CFG.currencyCode });   // not again when only the order type is switched
   const p = (me && me.profile) || {};
   const type = TYPES.includes(prev.type) ? prev.type : (tableInfo && TYPES.includes('dine_in') ? 'dine_in' : TYPES[0]);
   const sub = cartTotal(), fee = type === 'delivery' ? Number(CFG.deliveryFee || 0) : 0;
@@ -486,9 +494,10 @@ async function placeOrder() {
   if (type === 'delivery' && !f.addr) throw new Error('A delivery address is required');
   const table = type === 'dine_in' ? (tableInfo ? tableInfo.label : f.table) : '';
   if (type === 'dine_in' && !table) throw new Error('Table number is required for dine-in');
+  const lines = cartLines();   // kept for the Purchase event: the basket is emptied once the order is saved
   const body = {
     order_type: type, customer_name: f.name, customer_phone: f.phone, delivery_address: type === 'delivery' ? f.addr : '', notes: f.notes,
-    items: cartLines().map(([id, q]) => ({ menu_item_id: id, quantity: q })),
+    items: lines.map(([id, q]) => ({ menu_item_id: id, quantity: q })),
   };
   if (type === 'dine_in') { if (tableInfo) body.table_token = tableInfo.token; else body.table_label = table; }
 
@@ -503,10 +512,11 @@ async function placeOrder() {
     throw e;
   }
   basket.clear(); saveCart(); badge();   // the server also empties a signed-in customer's saved basket
+  track('Purchase', { ...pixelLines(lines), value: Number(o.total), currency: o.currency || CFG.currencyCode });
   const wa = o.whatsapp_url && /^https:\/\/wa\.me\//.test(o.whatsapp_url) ? o.whatsapp_url : '';
   open(`<h3>Order placed</h3><p class="muted">Your order number is <b>${esc(o.order_number)}</b>. Total ${money(o.total)}${o.payment_status === 'unpaid' ? ', to pay at the restaurant' : ''}.</p>
     ${wa ? `<p class="muted">Tap below to also send the details to ${esc(CFG.brand || 'the restaurant')} on WhatsApp.</p><a class="btn wa" href="${esc(wa)}" target="_blank" rel="noopener">Send on WhatsApp</a>` : ''}
-    <button class="btn ghost" data-act="done">Done</button>`);
+    ${session ? `${MSG}<button class="btn ghost" data-act="orders">My orders</button>` : ''}<button class="btn ghost" data-act="done">Done</button>`);
 }
 
 /* ---- account ---- */
@@ -526,7 +536,18 @@ function openProfile() {
   const p = me.profile || {};
   open(`<h3>${esc(p.display_name || 'My account')}</h3><p class="muted">${esc(me.email)}</p>
     ${field('p_name', 'Name', { value: p.display_name, attrs: 'maxlength="80"' })}${field('p_phone', 'Phone', { type: 'tel', value: p.phone, attrs: 'maxlength="30"' })}${field('p_addr', 'Delivery address', { value: p.address, attrs: 'maxlength="300"' })}${MSG}
-    <button class="btn" data-act="save">Save details</button>${me.staff ? '<a class="btn ghost" href="/admin">Admin</a>' : ''}<button class="btn ghost" data-act="out">Sign out</button>`);
+    <button class="btn" data-act="save">Save details</button><button class="btn ghost" data-act="orders">My orders</button>${me.staff ? '<a class="btn ghost" href="/admin">Admin</a>' : ''}<button class="btn ghost" data-act="out">Sign out</button>`);
+}
+const STATUS_LABEL = { pending: 'Received', confirmed: 'Confirmed', preparing: 'Being prepared', ready: 'Ready', completed: 'Completed', cancelled: 'Cancelled' };
+function openOrders(orders) {
+  const list = (orders || []).map(o => {
+    const when = new Date(o.created_at).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+    const kind = (TYPE_LABEL[o.order_type] || o.order_type) + (o.table_label ? ' · table ' + o.table_label : '');
+    const what = (o.bg_order_items || []).map(i => i.quantity + ' × ' + i.name_snapshot).join(', ');
+    const status = (STATUS_LABEL[o.status] || o.status) + (o.payment_status === 'paid' ? ' · Paid' : '');
+    return `<div class="line"><span><b>${esc(o.order_number)}</b><br><small style="color:var(--muted)">${esc(when)} · ${esc(kind)}</small>${what ? `<br><small style="color:var(--muted)">${esc(what)}</small>` : ''}</span><span style="text-align:right">${money(o.total)}<br><small style="color:var(--muted)">${esc(status)}</small></span></div>`;
+  }).join('');
+  open(`<h3>My orders</h3>${list || '<p class="muted">You have not placed any orders here yet.</p>'}${MSG}<button class="btn ghost" data-act="profile">Back</button><button class="btn ghost" data-close>Close</button>`);
 }
 const post = (path, body) => api(path, { method: 'POST', body });
 async function afterSignIn() { toast('Signed in'); return basket.size ? openBasket() : openProfile(); }
@@ -540,6 +561,8 @@ const ACTS = {
   async forgot() { await post('/api/auth/request-password-reset', { email: val('f_email') }); say('If that email has an account, a reset link is on its way.', true); },
   async save() { const j = await api('/api/auth/me', { method: 'PATCH', body: { display_name: val('p_name'), phone: val('p_phone'), address: val('p_addr') } }); me.profile = j.profile; say('Saved', true); },
   async out() { signedOut(); basket.clear(); saveCart(); badge(); close(); toast('Signed out'); },
+  async orders() { openOrders((await api('/api/auth/orders')).orders); },
+  async profile() { openProfile(); },
   async place() { await placeOrder(); },
   async done() { close(); toast('Thanks! We have your order'); },
   async basket() { openBasket(); },
