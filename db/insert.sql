@@ -1,5 +1,5 @@
 -- BiteGrow seed: first tenant "Red House" with 10 sample menu items.
--- Run after 001_bg_core_multitenant.sql. Safe to re-run: existing rows are kept,
+-- Run after base.sql. Safe to re-run: existing rows are kept,
 -- missing ones are added (menu items are matched on tenant + English name).
 --
 -- Images are NOT set here. Save each item's image URL in the database:
