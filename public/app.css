@@ -8,7 +8,7 @@ body{margin:0;background:#070606;color:var(--text);font-family:'Poppins',system-
 /* first screen = full-width logo + hero, together exactly one screen tall */
 .first-screen{height:calc(100svh - var(--tabs) - env(safe-area-inset-bottom,0px));min-height:440px;display:flex;flex-direction:column}
 .logo-banner{flex:none;width:100%;background:#000;text-align:center}
-.logo{display:block;width:100%;height:auto;max-height:26svh;object-fit:contain}
+.logo{display:block;width:100%;height:56px;object-fit:contain}
 .brand{display:block;color:var(--gold);font-weight:700;letter-spacing:.14em;font-size:20px;padding:16px}
 
 /* hero: 1 screen height, horizontal swipe/wheel scrubs video */
