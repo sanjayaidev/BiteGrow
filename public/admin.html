@@ -74,6 +74,7 @@ dialog::backdrop{background:rgba(0,0,0,.65)}dialog h2{margin-top:0}
   <button role="tab" data-t="menu" aria-selected="false">Menu</button>
   <button role="tab" data-t="tables" aria-selected="false">Tables</button>
   <button role="tab" data-t="settings" aria-selected="false">Restaurant</button>
+  <button role="tab" data-t="staff" aria-selected="false">Team</button>
   <button role="tab" data-t="media" aria-selected="false">Homepage</button>
   <button role="tab" data-t="meta" aria-selected="false">Meta</button>
   <button role="tab" data-t="ai" aria-selected="false">Assistant</button>
@@ -83,6 +84,7 @@ dialog::backdrop{background:rgba(0,0,0,.65)}dialog h2{margin-top:0}
 <section>
   <div class="head"><h2>Orders</h2><button class="quiet" id="ordRefresh">Refresh</button></div>
   <p>New orders appear here by themselves. Move each order along as the kitchen works on it.</p>
+  <div class="check"><input type="checkbox" id="ordSound"><label for="ordSound" style="margin:0">Play a sound when a new order arrives</label><button class="quiet" id="ordTest" type="button" style="margin-left:auto">Test sound</button></div>
   <div class="seg" id="ordFilter" role="group" aria-label="Show orders">
     <button type="button" data-f="active" aria-pressed="true">In progress</button>
     <button type="button" data-f="done" aria-pressed="false">Finished</button>
@@ -162,7 +164,38 @@ dialog::backdrop{background:rgba(0,0,0,.65)}dialog h2{margin-top:0}
 </section>
 </div>
 
+<div data-p="staff" hidden>
+<section>
+  <h2>Your team</h2>
+  <p>Admins can manage the menu, orders and settings. Staff only see the Orders screen, which suits the kitchen. Only you, the owner, can change the team.</p>
+  <div class="list" id="stl">Loading…</div>
+  <div class="msg" id="stMsg" role="status"></div>
+</section>
+<section>
+  <h2>Add a team member</h2>
+  <label for="st_email">Email</label><input type="email" id="st_email" autocomplete="off" placeholder="name@example.com">
+  <label for="st_role">Role</label>
+  <select id="st_role"><option value="staff">Staff (orders only)</option><option value="admin">Admin (everything except the team)</option></select>
+  <label for="st_pw">Temporary password <small>(only if they have no account yet, at least 8 characters)</small></label><input type="password" id="st_pw" autocomplete="new-password" maxlength="72">
+  <div class="row"><button class="primary" id="stAdd">Add to team</button></div>
+  <div class="msg" id="stAddMsg" role="status"></div>
+</section>
+</div>
+
 <div data-p="media" hidden>
+<section>
+  <h2>Homepage layout</h2>
+  <p>How the opening video behaves, and which dish is shown in the Top pick (3D) section.</p>
+  <label for="h_mode">Video behaviour</label>
+  <select id="h_mode"><option value="both">Plays by itself, and visitors can drag or scroll it</option><option value="auto">Plays by itself only</option><option value="manual">Visitors drag or scroll it only</option></select>
+  <label for="h_speed">Video speed <small id="h_speedv"></small> <small>(1 slow, 10 fast, 4 normal)</small></label>
+  <input type="range" id="h_speed" min="1" max="10" step="1" value="4" style="width:100%">
+  <div class="check"><input type="checkbox" id="h_top"><label for="h_top" style="margin:0">Show the Top pick (3D) section</label></div>
+  <label for="h_topItem">Top pick dish</label>
+  <select id="h_topItem"></select>
+  <div class="msg" id="h_note"></div>
+  <div class="row"><button class="primary" id="saveH">Save homepage layout</button></div><div class="msg" id="hMsg" role="status"></div>
+</section>
 <section>
   <h2>Homepage videos</h2>
   <p>Upload any video (up to 300 MB). It is trimmed, compressed and has its sound removed for you. Allowed: mp4, mov, webm, mkv, avi, m4v.</p>
@@ -248,7 +281,7 @@ async function json(path, opts) {
 
 function signOut() { store.set('bg_at', ''); store.set('bg_rt', ''); $('app').hidden = true; $('login').hidden = false; }
 
-let kitchenOnly = false;
+let kitchenOnly = false, isOwner = false;
 async function start() {
   if (!store.get('bg_at')) return signOut();
   try {
@@ -257,12 +290,12 @@ async function start() {
     if (!r.ok) return signOut();
     const me = await r.json();
     if (!['owner', 'admin', 'super', 'staff'].includes(me.staff)) { signOut(); say($('loginMsg'), 'This account is not staff of this restaurant.', false); return; }
-    kitchenOnly = me.staff === 'staff';
+    kitchenOnly = me.staff === 'staff'; isOwner = me.staff === 'owner' || me.staff === 'super';
   } catch (e) { return signOut(); }
   $('login').hidden = true; $('app').hidden = false;
   // Kitchen staff only work with orders; the settings, menu and integrations stay with owners and admins.
-  document.querySelectorAll('#tabs button').forEach((b) => { b.hidden = kitchenOnly && b.dataset.t !== 'orders'; });
-  if (!kitchenOnly) { loadSettings(); loadIntegrations(); loadMedia(); loadMenu(); loadTables(); }
+  document.querySelectorAll('#tabs button').forEach((b) => { b.hidden = (kitchenOnly && b.dataset.t !== 'orders') || (b.dataset.t === 'staff' && !isOwner); });
+  if (!kitchenOnly) { loadSettings(); loadIntegrations(); loadMedia(); loadMenu(); loadTables(); if (isOwner) loadStaff(); }
   startOrders();
   const cfg = await fetch('/api/config').then((r) => r.json()).catch(() => ({})); if (cfg.brand) $('title').textContent = cfg.brand + ' admin';
 }
@@ -316,6 +349,7 @@ async function loadSettings() {
     $('s_fee').value = s.delivery_fee; $('s_addr').value = s.address; $('s_map').value = s.map_url;
     OT.forEach((t) => $('o_' + t).checked = s.order_types.includes(t));
     setWa(s.whatsapp_number, s.features.whatsappOrder !== false); $('f_ar').checked = !!s.features.ar3d;
+    HM.f = s.features || {}; renderHome();
   } catch (e) { say($('sMsg'), e.message, false); }
 }
 $('saveS').onclick = async () => {
@@ -449,6 +483,7 @@ async function loadMenu() {
     M.cats = c.categories; M.items = i.items; M.langs = c.languages; M.def = c.default_lang;
     renderCats(); renderItems();
     if (typeof loadSpecial === 'function' && $('sp')) loadSpecial();   // keep the Special-dish pickers in step
+    if (typeof renderHome === 'function') renderHome();               // and the Top pick list
   } catch (e) { $('cats').textContent = e.message; $('items').textContent = ''; }
 }
 function renderCats() {
@@ -612,6 +647,7 @@ async function loadOrders(quiet) {
     // Orders that were not on screen at the previous refresh are flagged "New" until the filter changes.
     const added = O.seen ? j.orders.filter((o) => !O.seen.has(o.id)) : [];
     added.forEach((o) => O.fresh.add(o.id));
+    if (sndGet() && added.some((o) => o.status === 'pending')) chime();
     O.seen = new Set(j.orders.map((o) => o.id));
     renderOrders(j.orders);
     if (added.length && document.hidden) document.title = `(${added.length}) New order · ` + document.title.replace(/^\(\d+\) New order · /, '');
@@ -622,7 +658,7 @@ async function loadOrders(quiet) {
 function startOrders() {
   O.seen = null; O.fresh.clear(); loadOrders();
   clearInterval(O.timer);
-  O.timer = setInterval(() => { if (!document.hidden && !$('app').hidden) loadOrders(true); }, 20000);
+  O.timer = setInterval(() => { if (!document.hidden && !$('app').hidden) loadOrders(true); }, 10000);
 }
 document.addEventListener('visibilitychange', () => { if (!document.hidden) { document.title = document.title.replace(/^\(\d+\) New order · /, ''); if (!$('app').hidden) loadOrders(true); } });
 $('ordRefresh').onclick = () => loadOrders();
@@ -718,6 +754,94 @@ $('tbPrint').onclick = async () => {
     printCards(rows.map((t) => ({ label: t.label, svg: t.qr_svg })));
   } catch (e) { say($('tbMsg'), e.message, false); }
 };
+
+// ---- Homepage layout (video behaviour, speed, Top pick). Saved into the same feature flags the storefront reads.
+const HM = { f: {} };
+function renderHome() {
+  const f = HM.f;
+  $('h_mode').value = ['both', 'auto', 'manual'].includes(f.heroMode) ? f.heroMode : 'both';
+  $('h_speed').value = Math.min(10, Math.max(1, Math.round(Number(f.heroSpeed)) || 4)); $('h_speedv').textContent = '(' + $('h_speed').value + ')';
+  $('h_top').checked = f.topPick !== false;
+  const withModel = M.items.filter((i) => i.model_url);
+  const keep = String(f.topPickItemId || '');
+  $('h_topItem').innerHTML = '<option value="">Best rated dish with a 3D model (automatic)</option>' + withModel.map((i) => `<option value="${i.id}">${esc(nm(i.name))}</option>`).join('');
+  $('h_topItem').value = withModel.some((i) => String(i.id) === keep) ? keep : '';
+  $('h_topItem').disabled = !$('h_top').checked || !withModel.length;
+  $('h_note').textContent = withModel.length ? '' : 'No dish has a 3D model yet, so the Top pick section stays hidden. Add a .glb link to a dish in the Menu tab.';
+}
+$('h_speed').oninput = () => { $('h_speedv').textContent = '(' + $('h_speed').value + ')'; };
+$('h_top').onchange = () => { $('h_topItem').disabled = !$('h_top').checked || !M.items.some((i) => i.model_url); };
+$('saveH').onclick = async () => {
+  say($('hMsg'), 'Saving…');
+  try {
+    const s = await json('settings', { method: 'PUT', json: { features: {
+      heroMode: $('h_mode').value, heroSpeed: Number($('h_speed').value), topPick: $('h_top').checked,
+      topPickItemId: $('h_topItem').value ? Number($('h_topItem').value) : null,
+    } } });
+    HM.f = s.features || {}; renderHome();
+    say($('hMsg'), 'Saved. The site shows the change on the next page load.', true);
+  } catch (e) { say($('hMsg'), e.message, false); }
+};
+
+// ---- Team (owner only)
+const ROLE_NAME = { owner: 'Owner', admin: 'Admin', staff: 'Staff' };
+async function loadStaff() {
+  try {
+    const j = await json('staff');
+    $('stl').innerHTML = j.staff.map((m) => `<div class="rw"><div class="grow"><b>${esc(m.display_name || m.email)}${m.is_you ? '<span class="tag">You</span>' : ''}</b>${m.display_name ? `<small>${esc(m.email)}</small>` : ''}</div>${m.role === 'owner'
+      ? '<span class="tag">Owner</span>'
+      : `<select data-sr="${esc(m.user_id)}" aria-label="Role of ${esc(m.email)}" style="width:auto"><option value="admin"${m.role === 'admin' ? ' selected' : ''}>Admin</option><option value="staff"${m.role === 'staff' ? ' selected' : ''}>Staff</option></select><button class="quiet" data-sd="${esc(m.user_id)}" data-who="${esc(m.email)}">Remove</button>`}</div>`).join('');
+  } catch (e) { $('stl').textContent = e.message; }
+}
+$('stAdd').onclick = async () => {
+  const btn = $('stAdd'); btn.disabled = true; say($('stAddMsg'), 'Adding…');
+  try {
+    const j = await json('staff', { method: 'POST', json: { email: $('st_email').value, role: $('st_role').value, password: $('st_pw').value } });
+    $('st_email').value = ''; $('st_pw').value = '';
+    say($('stAddMsg'), j.member.created_account ? 'Added. An account was created: share the temporary password with them and ask them to sign in at /admin.' : 'Added. They can sign in with their existing account.', true);
+    await loadStaff();
+  } catch (e) { say($('stAddMsg'), e.message, false); }
+  finally { btn.disabled = false; }
+};
+$('stl').onchange = async (e) => {
+  const sel = e.target.closest('select[data-sr]'); if (!sel) return;
+  try { await json('staff/' + encodeURIComponent(sel.dataset.sr), { method: 'PATCH', json: { role: sel.value } }); say($('stMsg'), 'Role updated.', true); }
+  catch (err) { say($('stMsg'), err.message, false); await loadStaff(); }
+};
+$('stl').onclick = async (e) => {
+  const b = e.target.closest('button[data-sd]'); if (!b) return;
+  if (!confirm('Remove ' + b.dataset.who + ' from your team? They will no longer be able to open this admin.')) return;
+  b.disabled = true;
+  try { await json('staff/' + encodeURIComponent(b.dataset.sd), { method: 'DELETE' }); say($('stMsg'), 'Removed.', true); }
+  catch (err) { say($('stMsg'), err.message, false); }
+  await loadStaff();
+};
+
+// ---- Sound for new orders. A short two-note chime made in the browser; the choice is remembered on this device.
+// Browsers only allow sound after the person has interacted with the page, so the first click anywhere unlocks it.
+const SND = { ctx: null, key: 'bg_sound' };
+const sndGet = () => { try { return localStorage.getItem(SND.key) === '1'; } catch (e) { return false; } };
+const sndSet = (on) => { try { localStorage.setItem(SND.key, on ? '1' : '0'); } catch (e) {} };
+function sndCtx() {
+  try {
+    if (!SND.ctx) { const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return null; SND.ctx = new AC(); }
+    if (SND.ctx.state === 'suspended') SND.ctx.resume();
+    return SND.ctx;
+  } catch (e) { return null; }
+}
+function chime() {
+  const c = sndCtx(); if (!c) return;
+  [[880, 0], [1175, 0.18]].forEach(([hz, at]) => {
+    const o = c.createOscillator(), g = c.createGain(), t = c.currentTime + at;
+    o.type = 'sine'; o.frequency.value = hz; o.connect(g); g.connect(c.destination);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.35, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+    o.start(t); o.stop(t + 0.55);
+  });
+}
+$('ordSound').checked = sndGet();
+$('ordSound').onchange = () => { sndSet($('ordSound').checked); if ($('ordSound').checked) chime(); };
+$('ordTest').onclick = chime;
+document.addEventListener('click', () => { if (sndGet()) sndCtx(); }, { once: true });
 
 start();
 </script></main></body></html>

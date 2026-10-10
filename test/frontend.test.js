@@ -49,3 +49,19 @@ test('signed-in customers can open their order history', () => {
   assert.match(js, /esc\(o\.order_number\)/);
   assert.match(js, /esc\(what\)/);
 });
+
+test('admin page: Team tab is owner-only, homepage layout and order sound are wired up', () => {
+  const admin = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin.html'), 'utf8');
+  assert.match(admin, /data-t="staff"/);
+  assert.match(admin, /b\.dataset\.t === 'staff' && !isOwner/);                       // hidden for admins and kitchen staff
+  for (const call of ["json('staff')", "json('staff', { method: 'POST'", "'staff/' + encodeURIComponent"]) assert.ok(admin.includes(call), call);
+  for (const key of ['heroMode', 'heroSpeed', 'topPick', 'topPickItemId']) assert.ok(admin.includes(key), key);
+  assert.match(admin, /sndGet\(\) && added\.some\(\(o\) => o\.status === 'pending'\)\) chime\(\)/);   // chime only for new, waiting orders
+  assert.match(admin, /esc\(m\.email\)/);                                              // emails are escaped before going into markup
+});
+
+test('customers can order a past order again', () => {
+  assert.match(js, /data-again="\$\{esc\(o\.order_number\)\}"/);
+  assert.match(js, /else if \(d\.again\) reorder\(d\.again\)/);
+  assert.match(js, /byId\(i\.menu_item_id\)/);                                         // dishes no longer on the menu are skipped
+});

@@ -11,6 +11,7 @@
 //   POST /api/admin/integrations/ai/test   try the assistant from the admin page
 //   /api/admin/media/*                     hero + special videos and the five Special dishes (see media.js)
 //   /api/admin/tables/*                    dine-in tables and their QR codes (see tablesAdmin.js)
+//   /api/admin/staff/*                     the restaurant's team; owner only (see staffAdmin.js)
 
 const express = require('express');
 const multer = require('multer');
@@ -21,11 +22,13 @@ const { isConfigured: aiConfigured } = require('../lib/dashscope');
 const { createMediaRouter } = require('./media');
 const { createMenuAdminRouter } = require('./menuAdmin');
 const { createTablesRouter } = require('./tablesAdmin');
+const { createStaffRouter } = require('./staffAdmin');
 
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const str = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : undefined);
 const ORDER_TYPES = ['dine_in', 'pickup', 'delivery'];
 const FEATURE_KEYS = ['ar3d', 'whatsappOrder'];     // "assistant" follows the AI switch, see PUT /integrations/ai
+const HERO_MODES = ['both', 'auto', 'manual'];      // how the homepage video plays, see public/app.js
 
 function createAdminRouter({ supabase, auth, secretBox, assistant, onTenantChanged = () => {}, onMenuChanged = () => {}, mediaOptions = {} }) {
   const router = express.Router();
@@ -39,6 +42,9 @@ function createAdminRouter({ supabase, auth, secretBox, assistant, onTenantChang
 
   // ---- dine-in tables and their QR codes (/tables) -----------------------
   router.use('/tables', createTablesRouter({ supabase }));
+
+  // ---- the restaurant's own team (/staff), owner only ---------------------
+  router.use('/staff', createStaffRouter({ supabase }));
 
   // ---- homepage videos ---------------------------------------------------
   router.use('/media', createMediaRouter({ supabase, onMediaChanged: onMenuChanged, ...mediaOptions }));
@@ -116,9 +122,36 @@ function createAdminRouter({ supabase, auth, secretBox, assistant, onTenantChang
     }
     if (b.features !== undefined) {
       if (!b.features || typeof b.features !== 'object') return res.status(400).json({ error: 'features must be an object' });
+      const f = b.features;
       const current = (await readSettings(req.tenant.id)).features || {};
       u.features = { ...current };
-      for (const k of FEATURE_KEYS) if (typeof b.features[k] === 'boolean') u.features[k] = b.features[k];
+      for (const k of FEATURE_KEYS) if (typeof f[k] === 'boolean') u.features[k] = f[k];
+
+      // Homepage layout (the Homepage tab). Anything outside these rules is refused, not quietly dropped.
+      if (f.heroMode !== undefined) {
+        if (!HERO_MODES.includes(f.heroMode)) return res.status(400).json({ error: 'Hero mode must be both, auto or manual' });
+        u.features.heroMode = f.heroMode;
+      }
+      if (f.heroSpeed !== undefined) {
+        const n = Number(f.heroSpeed);
+        if (!Number.isInteger(n) || n < 1 || n > 10) return res.status(400).json({ error: 'Hero speed must be a whole number from 1 to 10' });
+        u.features.heroSpeed = n;
+      }
+      if (f.topPick !== undefined) {
+        if (typeof f.topPick !== 'boolean') return res.status(400).json({ error: 'Top pick must be on or off' });
+        u.features.topPick = f.topPick;
+      }
+      if (f.topPickItemId !== undefined) {
+        if (f.topPickItemId === null || f.topPickItemId === '') delete u.features.topPickItemId;      // back to "best rated"
+        else {
+          const id = Number(f.topPickItemId);
+          if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Choose a dish from your menu' });
+          const { data: dish, error: dErr } = await supabase.from('bg_menu_items').select('id').eq('tenant_id', req.tenant.id).eq('id', id).maybeSingle();
+          if (dErr) throw dErr;
+          if (!dish) return res.status(400).json({ error: 'Choose a dish from your menu' });
+          u.features.topPickItemId = id;
+        }
+      }
     }
     if (!Object.keys(u).length) return res.status(400).json({ error: 'No settings supplied' });
 

@@ -96,6 +96,19 @@ function makeDb(seed = {}) {
         const user = users.get(token);
         return user ? { data: { user }, error: null } : { data: { user: null }, error: new Error('bad jwt') };
       },
+      admin: {
+        async listUsers({ page = 1, perPage = 50 } = {}) {
+          return { data: { users: [...users.values()].slice((page - 1) * perPage, page * perPage) }, error: null };
+        },
+        async getUserById(id) {
+          const user = [...users.values()].find((u) => u.id === id);
+          return user ? { data: { user }, error: null } : { data: { user: null }, error: new Error('User not found') };
+        },
+        async createUser({ email }) {
+          if ([...users.values()].some((u) => u.email === email)) return { data: { user: null }, error: new Error('A user with this email address has already been registered') };
+          return { data: { user: addUser(email) }, error: null };
+        },
+      },
     },
   };
 

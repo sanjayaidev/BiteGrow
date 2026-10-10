@@ -59,9 +59,21 @@ In the admin panel, open **Tables** to add tables one by one or as a numbered ra
 
 Once a restaurant has any table here, checkout accepts only those tables. With none, customers type their own table number. Switching a table off or deleting it makes its printed QR code stop working; renaming keeps it working.
 
+## Team
+
+The owner can open **Team** in the admin panel to add people to the restaurant. An **admin** can run the menu, orders, tables and settings; **staff** only see the Orders screen, which suits the kitchen. Enter the person's email: if they already have an account on the site it is attached to the restaurant, otherwise enter a temporary password to create one (they can change it later with "Forgot password"). The owner's role cannot be changed or removed, and nobody can remove themselves.
+
+## Homepage layout
+
+**Homepage** in the admin panel controls how the opening video plays (by itself, by drag or scroll, or both), its speed from 1 to 10, and whether the Top pick (3D) section is shown and which dish it features. Without a choice the best-rated dish that has a 3D model is used.
+
+## Orders desk
+
+New orders show up on the **Orders** screen within 10 seconds and are marked "New". Tick **Play a sound when a new order arrives** to hear a chime; the choice is remembered on that device, and the browser needs one click on the page first before it will play sound.
+
 ## Order status
 
-After ordering, customers can tap **Track my order** to see a live step list (Received, Confirmed, Being prepared, Ready, Completed) that refreshes by itself. Guests can return to their last order from the same device through the basket or sign-in screens; signed-in customers can track any order under **My orders**.
+After ordering, customers can tap **Track my order** to see a live step list (Received, Confirmed, Being prepared, Ready, Completed) that refreshes by itself. Guests can return to their last order from the same device through the basket or sign-in screens; signed-in customers can track live orders and reorder past ones (**Order again**) under **My orders**.
 
 ## Tests
 
