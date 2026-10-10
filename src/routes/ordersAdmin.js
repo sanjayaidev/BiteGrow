@@ -45,6 +45,7 @@ const view = (o, items) => ({
   total: Number(o.total),
   currency: o.currency,
   notes: o.notes || null,
+  ready_at: o.ready_at || null,
   created_at: o.created_at,
   items: (items || []).map((i) => ({ name: i.name_snapshot, quantity: i.quantity, line_total: Number(i.line_total) })),
   next_statuses: NEXT[o.status] || [],

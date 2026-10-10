@@ -303,4 +303,4 @@ function createOrdersRouter({ supabase, auth, createLimit = 20, lookupLimit = 60
   return router;
 }
 
-module.exports = { createOrdersRouter, whatsappUrl };
+module.exports = { createOrdersRouter, whatsappUrl, parseReadyAt };
