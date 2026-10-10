@@ -132,7 +132,10 @@ test('publicConfig exposes only browser-safe fields', async () => {
   assert.equal(cfg.brand, 'RED HOUSE');
   assert.equal(cfg.currency, '₹');
   assert.equal(cfg.cardBg, 'img/wood.png');
-  assert.ok(!('id' in cfg) && !('orderPrefix' in cfg) && !('timezone' in cfg));
+  assert.ok(!('id' in cfg) && !('orderPrefix' in cfg));
+  // timezone is intentionally public now: the footer hours and the "ready by" picker
+  // must be shown in the restaurant's wall clock, not the browser's.
+  assert.equal(typeof cfg.timezone, 'string');
 });
 
 test('lookup still works when the integrations relationship is missing from the API schema cache', async () => {
