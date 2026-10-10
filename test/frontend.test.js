@@ -21,6 +21,26 @@ test('Meta Pixel events are sent through a guard that does nothing without a pix
   assert.match(js, /currency: CFG\.currencyCode/);
 });
 
+test('customers can follow an order\'s status, and the refresh stops when the sheet closes or the order is finished', () => {
+  assert.match(js, /\/api\/orders\/' \+ encodeURIComponent\(number\)/);
+  assert.match(js, /data-act="track"/);
+  assert.match(js, /const close = \(\) => \{ stopTrack\(\);/);          // closing the sheet stops the timer
+  assert.match(js, /const open = html => \{ stopTrack\(\);/);           // so does opening any other view
+  assert.match(js, /if \(FINISHED\.includes\(n\.status\)\) stopTrack\(\)/);
+  // The order's secret token is kept on this device only, and every value from the server is escaped.
+  assert.match(js, /store\.set\('last', \{ number: o\.order_number, token: o\.order_token \}\)/);
+  assert.match(js, /esc\(STATUS_LABEL\[s\]\)/);
+});
+
+test('the admin page has a Tables screen wired to the tables API', () => {
+  const admin = fs.readFileSync(path.join(__dirname, '..', 'public', 'admin.html'), 'utf8');
+  assert.match(admin, /data-t="tables"/);
+  assert.match(admin, /data-p="tables"/);
+  for (const call of ["json('tables')", "json('tables?qr=1')", '`tables/${t.id}/qr.svg`', "'tables/' + id"]) assert.ok(admin.includes(call), call);
+  assert.match(admin, /esc\(t\.label\)/);                                // table names are escaped before going into markup
+  assert.match(admin, /const brand = esc\(/);
+});
+
 test('signed-in customers can open their order history', () => {
   assert.match(js, /api\('\/api\/auth\/orders'\)/);
   assert.match(js, /data-act="orders"/);

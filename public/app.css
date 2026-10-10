@@ -107,6 +107,11 @@ body{margin:0;background:#070606;color:var(--text);font-family:'Poppins',system-
 .line{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--line);font-size:14px;gap:10px}
 .qty button{width:28px;height:28px;border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--text);cursor:pointer}
 .total{display:flex;justify-content:space-between;font-weight:700;padding:14px 0 0}
+.trk{list-style:none;margin:14px 0 6px;padding:0}
+.trk li{position:relative;padding:6px 0 6px 26px;color:var(--muted);font-size:14px}
+.trk li:before{content:"";position:absolute;left:0;top:11px;width:12px;height:12px;border-radius:50%;border:2px solid var(--line)}
+.trk li.done{color:var(--text)}.trk li.done:before{background:var(--gold);border-color:var(--gold)}
+.trk li.now{color:var(--gold);font-weight:700}.trk li.now:before{background:var(--gold);border-color:var(--gold);box-shadow:0 0 0 4px rgba(227,178,60,.25)}
 .toast{position:fixed;left:50%;bottom:calc(var(--tabs) + 18px);transform:translate(-50%,20px);background:var(--gold);color:#1a1408;font-weight:600;font-size:13px;padding:9px 16px;border-radius:999px;opacity:0;pointer-events:none;transition:.25s;z-index:50}
 .toast.show{opacity:1;transform:translate(-50%,0)}
 @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.hint i,.cue-touch i{animation:none!important}}

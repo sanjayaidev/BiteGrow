@@ -373,8 +373,9 @@ const store = {
 let session = store.get('auth', null), me = null, tableInfo = null;
 const basket = new Map((store.get('cart', []) || []).filter(([id]) => byId(id)));
 const sheet = $('#sheet'), cardEl = $('#sheetCard');
-const open = html => { $('#toast').classList.remove('show'); cardEl.innerHTML = html; sheet.classList.add('open'); cardEl.scrollTop = 0; };
-const close = () => sheet.classList.remove('open');
+let trackTimer = null, tracking = null;   // the order-status view (see "order status" below)
+const open = html => { stopTrack(); $('#toast').classList.remove('show'); cardEl.innerHTML = html; sheet.classList.add('open'); cardEl.scrollTop = 0; };
+const close = () => { stopTrack(); sheet.classList.remove('open'); };
 sheet.addEventListener('click', e => { if (e.target === sheet) close(); });
 addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
 
@@ -462,7 +463,7 @@ function openItem(id) {
 /* ---- basket and checkout ---- */
 function openBasket() {
   const lines = cartLines();
-  if (!lines.length) return open(`<h3>Your basket</h3><p class="muted">Nothing here yet. Add something from the menu.</p><button class="btn" data-goto="menu">Browse menu</button>`);
+  if (!lines.length) return open(`<h3>Your basket</h3><p class="muted">Nothing here yet. Add something from the menu.</p>${MSG}<button class="btn" data-goto="menu">Browse menu</button>${store.get('last', null) ? '<button class="btn ghost" data-act="track">Track my last order</button>' : ''}`);
   const rows = lines.map(([id, q]) => { const i = byId(id); return `<div class="line"><span>${esc(i.name)}<br><small style="color:var(--muted)">${money(i.price)}</small></span><span class="qty"><button data-dec="${id}">−</button> ${q} <button data-add="${id}" data-stay>+</button></span></div>`; }).join('');
   open(`<h3>Your basket</h3>${rows}<div class="total"><span>Total</span><span>${money(cartTotal())}</span></div>${session ? '' : '<p class="muted" style="margin:10px 0 0">Sign in to keep your basket on every device.</p>'}<button class="btn" data-checkout>Checkout</button><button class="btn ghost" data-close>Keep browsing</button>`);
 }
@@ -512,11 +513,12 @@ async function placeOrder() {
     throw e;
   }
   basket.clear(); saveCart(); badge();   // the server also empties a signed-in customer's saved basket
+  store.set('last', { number: o.order_number, token: o.order_token });   // lets a guest come back to this order's status
   track('Purchase', { ...pixelLines(lines), value: Number(o.total), currency: o.currency || CFG.currencyCode });
   const wa = o.whatsapp_url && /^https:\/\/wa\.me\//.test(o.whatsapp_url) ? o.whatsapp_url : '';
   open(`<h3>Order placed</h3><p class="muted">Your order number is <b>${esc(o.order_number)}</b>. Total ${money(o.total)}${o.payment_status === 'unpaid' ? ', to pay at the restaurant' : ''}.</p>
     ${wa ? `<p class="muted">Tap below to also send the details to ${esc(CFG.brand || 'the restaurant')} on WhatsApp.</p><a class="btn wa" href="${esc(wa)}" target="_blank" rel="noopener">Send on WhatsApp</a>` : ''}
-    ${session ? `${MSG}<button class="btn ghost" data-act="orders">My orders</button>` : ''}<button class="btn ghost" data-act="done">Done</button>`);
+    ${MSG}<button class="btn" data-act="track">Track my order</button>${session ? '<button class="btn ghost" data-act="orders">My orders</button>' : ''}<button class="btn ghost" data-act="done">Done</button>`);
 }
 
 /* ---- account ---- */
@@ -530,7 +532,7 @@ async function openAccount(view = 'in') {
     ${up ? field('f_name', 'Name', { attrs: 'autocomplete="name" maxlength="80"' }) : ''}
     ${field('f_email', 'Email', { type: 'email', attrs: 'autocomplete="email"' })}
     ${field('f_pass', 'Password', { type: 'password', attrs: `autocomplete="${up ? 'new' : 'current'}-password" maxlength="72" placeholder="At least 8 characters"` })}${MSG}
-    <button class="btn" data-act="${up ? 'up' : 'in'}">${up ? 'Create account' : 'Sign in'}</button>${up ? '' : '<button class="link" data-acct="forgot">Forgot password?</button>'}<button class="btn ghost" data-close>Close</button>`);
+    <button class="btn" data-act="${up ? 'up' : 'in'}">${up ? 'Create account' : 'Sign in'}</button>${up ? '' : '<button class="link" data-acct="forgot">Forgot password?</button>'}${store.get('last', null) ? '<button class="btn ghost" data-act="track">Track my last order</button>' : ''}<button class="btn ghost" data-close>Close</button>`);
 }
 function openProfile() {
   const p = me.profile || {};
@@ -545,9 +547,46 @@ function openOrders(orders) {
     const kind = (TYPE_LABEL[o.order_type] || o.order_type) + (o.table_label ? ' · table ' + o.table_label : '');
     const what = (o.bg_order_items || []).map(i => i.quantity + ' × ' + i.name_snapshot).join(', ');
     const status = (STATUS_LABEL[o.status] || o.status) + (o.payment_status === 'paid' ? ' · Paid' : '');
-    return `<div class="line"><span><b>${esc(o.order_number)}</b><br><small style="color:var(--muted)">${esc(when)} · ${esc(kind)}</small>${what ? `<br><small style="color:var(--muted)">${esc(what)}</small>` : ''}</span><span style="text-align:right">${money(o.total)}<br><small style="color:var(--muted)">${esc(status)}</small></span></div>`;
+    const live = !['completed', 'cancelled'].includes(o.status);
+    return `<div class="line"><span><b>${esc(o.order_number)}</b><br><small style="color:var(--muted)">${esc(when)} · ${esc(kind)}</small>${what ? `<br><small style="color:var(--muted)">${esc(what)}</small>` : ''}</span><span style="text-align:right">${money(o.total)}<br><small style="color:var(--muted)">${esc(status)}</small>${live ? `<br><button class="link" data-trk="${esc(o.order_number)}">Track</button>` : ''}</span></div>`;
   }).join('');
   open(`<h3>My orders</h3>${list || '<p class="muted">You have not placed any orders here yet.</p>'}${MSG}<button class="btn ghost" data-act="profile">Back</button><button class="btn ghost" data-close>Close</button>`);
+}
+
+/* ---- order status: a step list that refreshes by itself until the order is finished. Guests reach it with the secret
+   token saved on this device when they ordered; a signed-in customer's own orders need no token. ---- */
+const TRACK_STEPS = ['pending', 'confirmed', 'preparing', 'ready', 'completed'];
+const FINISHED = ['completed', 'cancelled'];
+function stopTrack() { clearInterval(trackTimer); trackTimer = null; }
+const fetchOrder = (number, token) => api('/api/orders/' + encodeURIComponent(number) + '?token=' + encodeURIComponent(token || ''));
+function trackHtml(o) {
+  const at = TRACK_STEPS.indexOf(o.status);
+  const steps = o.status === 'cancelled'
+    ? '<p class="muted" style="margin:12px 0"><b>This order was cancelled.</b> Please contact the restaurant if you have questions.</p>'
+    : `<ol class="trk">${TRACK_STEPS.map((s, i) => `<li class="${i < at ? 'done' : i === at ? 'now' : ''}">${esc(STATUS_LABEL[s])}</li>`).join('')}</ol>`;
+  const where = (TYPE_LABEL[o.order_type] || o.order_type) + (o.table_label ? ' · table ' + o.table_label : '');
+  const rows = (o.items || []).map(i => `<div class="line"><span>${i.quantity} × ${esc(i.name)}</span><span>${money(i.line_total)}</span></div>`).join('');
+  return `${steps}<p class="muted" style="margin:10px 0 0">${esc(where)}${FINISHED.includes(o.status) ? '' : ' · this page updates by itself'}</p>${rows}<div class="total"><span>Total</span><span>${money(o.total)}</span></div>`;
+}
+async function openTrack(number, token) {
+  const o = await fetchOrder(number, token);          // an error here is shown by the button that asked
+  tracking = { number, token: token || '' };
+  open(`<h3>Order ${esc(o.order_number)}</h3><div id="trk">${trackHtml(o)}</div><button class="btn ghost" data-act="trackNow">Refresh</button><button class="btn ghost" data-close>Close</button>`);
+  if (FINISHED.includes(o.status)) return;
+  trackTimer = setInterval(async () => {
+    const box = $('#trk', cardEl);
+    if (!sheet.classList.contains('open') || !box) return stopTrack();
+    try { const n = await fetchOrder(number, token); box.innerHTML = trackHtml(n); if (FINISHED.includes(n.status)) stopTrack(); } catch (_) { /* try again at the next tick */ }
+  }, 15000);
+}
+async function trackLast() {
+  const last = store.get('last', null);
+  if (!last || !last.number || !last.token) throw new Error('There is no recent order on this device. Sign in to see your orders.');
+  try { await openTrack(last.number, last.token); }
+  catch (e) {
+    if (e.status === 403 || e.status === 404) { store.set('last', null); throw new Error('We could not find that order any more.'); }
+    throw e;
+  }
 }
 const post = (path, body) => api(path, { method: 'POST', body });
 async function afterSignIn() { toast('Signed in'); return basket.size ? openBasket() : openProfile(); }
@@ -561,6 +600,8 @@ const ACTS = {
   async forgot() { await post('/api/auth/request-password-reset', { email: val('f_email') }); say('If that email has an account, a reset link is on its way.', true); },
   async save() { const j = await api('/api/auth/me', { method: 'PATCH', body: { display_name: val('p_name'), phone: val('p_phone'), address: val('p_addr') } }); me.profile = j.profile; say('Saved', true); },
   async out() { signedOut(); basket.clear(); saveCart(); badge(); close(); toast('Signed out'); },
+  async track() { await trackLast(); },
+  async trackNow() { if (tracking) await openTrack(tracking.number, tracking.token); },
   async orders() { openOrders((await api('/api/auth/orders')).orders); },
   async profile() { openProfile(); },
   async place() { await placeOrder(); },
@@ -576,6 +617,7 @@ cardEl.addEventListener('click', e => {
   else if ('checkout' in d) openCheckout();
   else if (d.type) openCheckout({ ...readForm(), type: d.type });
   else if (d.act) run(t, ACTS[d.act]);
+  else if (d.trk) run(t, () => openTrack(d.trk, ''));
   else if (d.acct) openAccount(d.acct);
   else if (d.goto) { close(); go(d.goto); }
   else if ('close' in d) close();
