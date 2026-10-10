@@ -541,14 +541,26 @@ function openProfile() {
     <button class="btn" data-act="save">Save details</button><button class="btn ghost" data-act="orders">My orders</button>${me.staff ? '<a class="btn ghost" href="/admin">Admin</a>' : ''}<button class="btn ghost" data-act="out">Sign out</button>`);
 }
 const STATUS_LABEL = { pending: 'Received', confirmed: 'Confirmed', preparing: 'Being prepared', ready: 'Ready', completed: 'Completed', cancelled: 'Cancelled' };
+let shownOrders = [];   // the list on screen, so "Order again" can find an order's dishes
+// Puts a past order's dishes back in the basket. Dishes that are no longer on the menu are left out and the customer is told.
+function reorder(number) {
+  const o = shownOrders.find(x => x.order_number === number); if (!o) return;
+  let added = 0, missing = 0;
+  for (const i of o.bg_order_items || []) {
+    if (i.menu_item_id != null && byId(i.menu_item_id)) { setQty(i.menu_item_id, (basket.get(i.menu_item_id) || 0) + i.quantity); added++; } else missing++;
+  }
+  openBasket();
+  toast(!added ? 'Those dishes are no longer on the menu' : missing ? 'Added. Some dishes are no longer on the menu' : 'Added to your basket');
+}
 function openOrders(orders) {
-  const list = (orders || []).map(o => {
+  shownOrders = orders || [];
+  const list = shownOrders.map(o => {
     const when = new Date(o.created_at).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
     const kind = (TYPE_LABEL[o.order_type] || o.order_type) + (o.table_label ? ' · table ' + o.table_label : '');
     const what = (o.bg_order_items || []).map(i => i.quantity + ' × ' + i.name_snapshot).join(', ');
     const status = (STATUS_LABEL[o.status] || o.status) + (o.payment_status === 'paid' ? ' · Paid' : '');
     const live = !['completed', 'cancelled'].includes(o.status);
-    return `<div class="line"><span><b>${esc(o.order_number)}</b><br><small style="color:var(--muted)">${esc(when)} · ${esc(kind)}</small>${what ? `<br><small style="color:var(--muted)">${esc(what)}</small>` : ''}</span><span style="text-align:right">${money(o.total)}<br><small style="color:var(--muted)">${esc(status)}</small>${live ? `<br><button class="link" data-trk="${esc(o.order_number)}">Track</button>` : ''}</span></div>`;
+    return `<div class="line"><span><b>${esc(o.order_number)}</b><br><small style="color:var(--muted)">${esc(when)} · ${esc(kind)}</small>${what ? `<br><small style="color:var(--muted)">${esc(what)}</small>` : ''}</span><span style="text-align:right">${money(o.total)}<br><small style="color:var(--muted)">${esc(status)}</small>${live ? `<br><button class="link" data-trk="${esc(o.order_number)}">Track</button>` : ''}<br><button class="link" data-again="${esc(o.order_number)}">Order again</button></span></div>`;
   }).join('');
   open(`<h3>My orders</h3>${list || '<p class="muted">You have not placed any orders here yet.</p>'}${MSG}<button class="btn ghost" data-act="profile">Back</button><button class="btn ghost" data-close>Close</button>`);
 }
@@ -618,6 +630,7 @@ cardEl.addEventListener('click', e => {
   else if (d.type) openCheckout({ ...readForm(), type: d.type });
   else if (d.act) run(t, ACTS[d.act]);
   else if (d.trk) run(t, () => openTrack(d.trk, ''));
+  else if (d.again) reorder(d.again);
   else if (d.acct) openAccount(d.acct);
   else if (d.goto) { close(); go(d.goto); }
   else if ('close' in d) close();
