@@ -13,6 +13,7 @@
 const express = require('express');
 const rateLimit = require('express-rate-limit');
 const { createClient } = require('@supabase/supabase-js');
+const WebSocket = require('ws');
 
 const PROFILE_COLS = 'id, display_name, phone, address, created_at, updated_at';
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -23,7 +24,11 @@ const LIMITS = { display_name: 80, phone: 30, address: 300 };
 function defaultAuthClient() {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
-  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  // Node < 22 has no native WebSocket, and supabase-js builds a realtime client even though this one never uses it.
+  return createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    realtime: { transport: WebSocket },
+  });
 }
 
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
