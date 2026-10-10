@@ -16,6 +16,7 @@
 const express = require('express');
 const multer = require('multer');
 const { mask } = require('../lib/secrets');
+const { okUrl } = require('../lib/menuImport');
 const { templateCsv, planImport, loadExisting, applyImport, exportCsv } = require('../lib/menuImport');
 const { defaultsFor, CHANNELS } = require('../lib/assistant');
 const { validateSchedule, isOpen } = require('../lib/hours');
@@ -176,7 +177,7 @@ function createAdminRouter({ supabase, auth, secretBox, assistant, onTenantChang
   }));
 
   const settingsView = (s) => ({
-    brand_name: s.brand_name || '', page_title: s.page_title || '', phone: s.phone || '', phone2: s.phone2 || '',
+    brand_name: s.brand_name || '', page_title: s.page_title || '', logo_url: s.logo_url || '', phone: s.phone || '', phone2: s.phone2 || '',
     address: s.address || '', map_url: s.map_url || '', whatsapp_number: s.whatsapp_number || '',
     delivery_fee: Number(s.delivery_fee || 0), order_types: s.order_types || ORDER_TYPES, features: s.features || {},
     open_hours: s.open_hours && typeof s.open_hours === 'object' ? s.open_hours : {},
@@ -192,6 +193,12 @@ function createAdminRouter({ supabase, auth, secretBox, assistant, onTenantChang
       const v = str(b[field], max); if (v !== undefined) u[field] = v;
     }
     if (b.brand_name !== undefined && !u.brand_name) return res.status(400).json({ error: 'Brand name cannot be empty' });
+    if (b.logo_url !== undefined) {
+      // Not truncated: a cut-off link would be saved silently. okUrl allows https links and site paths like img/logo.png.
+      const v = b.logo_url === null ? '' : typeof b.logo_url === 'string' ? b.logo_url.trim() : undefined;
+      if (v === undefined || (v && !okUrl(v))) return res.status(400).json({ error: 'Logo link must start with https:// or be a site file such as img/logo.png' });
+      u.logo_url = v || null;                                       // empty = show the restaurant name as text
+    }
     if (b.map_url !== undefined) {
       const v = str(b.map_url, 500);
       if (v && !/^https:\/\//i.test(v)) return res.status(400).json({ error: 'Map link must start with https://' });

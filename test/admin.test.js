@@ -233,3 +233,34 @@ test('assistant test endpoint reports disabled and works when on', async () => {
     assert.equal((await t('hello')).body.reply, 'bot says hi');
   });
 });
+
+test('settings: the restaurant admin can set, change and clear the logo link', async () => {
+  const { app, tokens, db, events } = setup();
+  await run(app, async (call) => {
+    const put = (body) => call('PUT', '/api/admin/settings', { token: tokens.staff, body });
+    assert.equal((await call('GET', '/api/admin/settings', { token: tokens.staff })).body.logo_url, '');
+
+    let r = await put({ logo_url: ' https://cdn.example.com/logo.png ' });
+    assert.equal(r.status, 200); assert.equal(r.body.logo_url, 'https://cdn.example.com/logo.png');
+    assert.equal(db.rowsOf('bg_tenant_settings')[0].logo_url, 'https://cdn.example.com/logo.png');
+    assert.ok(events.some((e) => e.changed === 'tenant-a'));                                    // storefront cache is cleared
+
+    r = await put({ logo_url: 'img/logo.png' });                                                // a file shipped with the site
+    assert.equal(r.body.logo_url, 'img/logo.png');
+
+    for (const bad of ['javascript:alert(1)', 'http://insecure.example/a.png', '//evil.example/a.png', '../secret.png', 'https://x/"onerror="y', 42, {}]) {
+      assert.equal((await put({ logo_url: bad })).status, 400, String(bad));
+    }
+    assert.equal(db.rowsOf('bg_tenant_settings')[0].logo_url, 'img/logo.png');                  // bad input changed nothing
+
+    r = await put({ logo_url: '' });                                                            // clear: the site shows the name as text
+    assert.equal(r.body.logo_url, ''); assert.equal(db.rowsOf('bg_tenant_settings')[0].logo_url, null);
+    r = await put({ logo_url: null });
+    assert.equal(r.status, 200);
+
+    // other fields still save without touching the logo
+    await put({ logo_url: 'img/logo.png' });
+    await put({ brand_name: 'New Name' });
+    assert.equal(db.rowsOf('bg_tenant_settings')[0].logo_url, 'img/logo.png');
+  });
+});

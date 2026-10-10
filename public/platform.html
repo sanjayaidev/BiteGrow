@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Platform admin</title>
+<style>
+:root{--bg:#121110;--surface:#1c1a18;--field:#151413;--line:#2c2925;--gold:#e3b23c;--text:#f4efe6;--muted:#a99f8f;--bad:#ff8a7a;--ok:#7ad17a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif}
+main{max-width:860px;margin:0 auto;padding:20px 16px 80px}
+h1{font-size:20px;margin:0}h2{font-size:16px;margin:0 0 4px}h3{font-size:13px;margin:18px 0 4px;color:var(--gold);letter-spacing:.06em;text-transform:uppercase}
+p{margin:0 0 12px;color:var(--muted);font-size:13px}
+header{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px}
+section{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px}
+label{display:block;font-size:13px;margin:12px 0 4px}label small{color:var(--muted);font-weight:400}
+input,select{width:100%;background:var(--field);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:9px 10px;font:inherit}
+input:focus-visible,select:focus-visible,button:focus-visible,a:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}@media(max-width:560px){.grid{grid-template-columns:1fr}}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:14px}
+button.primary{background:var(--gold);color:#1a1408;border:0;border-radius:8px;padding:9px 16px;font-weight:700;cursor:pointer}
+button.quiet,a.quiet{background:none;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:6px 12px;font:inherit;font-size:13px;cursor:pointer;text-decoration:none;display:inline-block}
+button.danger{color:var(--bad)}
+button:disabled{opacity:.5;cursor:default}
+.msg{margin-top:10px;font-size:13px;white-space:pre-wrap}.ok{color:var(--ok)}.bad{color:var(--bad)}
+.rw{display:flex;align-items:center;gap:12px;padding:12px 0;border-top:1px solid var(--line);flex-wrap:wrap}.rw:first-child{border-top:0}
+.rw .grow{flex:1;min-width:180px}.rw b{display:block}.rw small{color:var(--muted);font-size:12px;word-break:break-all}
+.rw .acts{display:flex;gap:6px;flex-wrap:wrap}
+.logo{width:56px;height:40px;border-radius:6px;object-fit:contain;background:#000;flex:none;border:1px solid var(--line)}
+.logo.none{display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:10px}
+.tag{display:inline-block;font-size:11px;border:1px solid var(--line);border-radius:999px;padding:0 7px;margin-left:6px;color:var(--ok)}.tag.off{color:var(--bad)}
+.tools{display:flex;gap:8px;margin:12px 0}.tools input{flex:1}
+dialog{background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:12px;padding:18px;width:min(620px,94vw);max-height:92vh;overflow:auto}
+dialog::backdrop{background:rgba(0,0,0,.65)}dialog h2{margin-top:0}
+.chip{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--line);font-size:13px}.chip:first-of-type{border-top:0}
+.chip code{word-break:break-all}
+code{background:var(--field);border:1px solid var(--line);border-radius:6px;padding:2px 6px;font-size:12px}
+#logoPv{display:none;max-height:70px;max-width:100%;background:#000;border-radius:8px;margin-top:8px}
+[hidden]{display:none!important}
+</style></head>
+<body><main>
+
+<section id="login" hidden>
+  <h1>Platform admin</h1>
+  <p>Enter the platform password (the <code>PLATFORM_ADMIN_KEY</code> set on the server).</p>
+  <label for="pw">Password</label>
+  <input id="pw" type="password" autocomplete="current-password">
+  <div class="row"><button class="primary" id="signIn">Sign in</button></div>
+  <div class="msg" id="loginMsg" role="status"></div>
+</section>
+
+<div id="app" hidden>
+  <header><h1>Platform admin</h1><div class="row" style="margin:0"><button class="primary" id="addBtn">Add restaurant</button><button class="quiet" id="signOut">Sign out</button></div></header>
+  <section>
+    <h2>Restaurants <span id="count" class="tag" style="color:var(--muted)"></span></h2>
+    <p>Every restaurant on this server. Suspending one makes its site answer "currently unavailable" and keeps all its data.</p>
+    <div class="tools"><input id="filter" type="search" placeholder="Search by name, web name or domain" aria-label="Search restaurants"></div>
+    <div id="list"></div>
+    <div class="msg" id="listMsg" role="status"></div>
+  </section>
+</div>
+
+<dialog id="dlg">
+  <h2 id="dTitle"></h2>
+  <div class="grid">
+    <div id="slugBox"><label for="d_slug">Web name <small>(letters, digits, dashes — cannot be changed later)</small></label><input id="d_slug" type="text" maxlength="40" autocomplete="off"></div>
+    <div><label for="d_name">Restaurant name</label><input id="d_name" type="text" maxlength="80" autocomplete="off"></div>
+    <div><label for="d_brand">Name shown on the site <small>(blank = same as name)</small></label><input id="d_brand" type="text" maxlength="80"></div>
+    <div><label for="d_title">Browser tab title</label><input id="d_title" type="text" maxlength="120"></div>
+  </div>
+  <label for="d_logo">Logo image <small>(an https:// link or a site file like img/logo.png; empty = name as text)</small></label>
+  <input id="d_logo" type="text" maxlength="600" autocomplete="off" placeholder="https://…/logo.png">
+  <img id="logoPv" alt="Logo preview">
+  <div class="grid">
+    <div><label for="d_tz">Timezone</label><input id="d_tz" type="text" list="tzs" placeholder="Asia/Kolkata" autocomplete="off"></div>
+    <div><label for="d_langs">Languages <small>(first one is the default)</small></label><input id="d_langs" type="text" placeholder="en" autocomplete="off"></div>
+    <div><label for="d_cur">Currency code</label><input id="d_cur" type="text" maxlength="3" placeholder="INR" autocomplete="off"></div>
+    <div><label for="d_sym">Currency symbol</label><input id="d_sym" type="text" maxlength="5" placeholder="₹" autocomplete="off"></div>
+    <div><label for="d_pre">Order number prefix</label><input id="d_pre" type="text" maxlength="6" placeholder="RH" autocomplete="off"></div>
+    <div id="statusBox"><label for="d_status">Status</label><select id="d_status"><option value="active">Active</option><option value="suspended">Suspended</option></select></div>
+  </div>
+  <datalist id="tzs"></datalist>
+
+  <div id="createOnly">
+    <h3>First domain and owner <small style="text-transform:none;letter-spacing:0;color:var(--muted)">(optional — can be added later)</small></h3>
+    <div class="grid">
+      <div><label for="d_domain">Domain</label><input id="d_domain" type="text" placeholder="order.example.com" autocomplete="off"></div>
+      <div></div>
+      <div><label for="d_owner">Owner email</label><input id="d_owner" type="email" autocomplete="off"></div>
+      <div><label for="d_ownerpw">Temporary password <small>(only if no account exists yet)</small></label><input id="d_ownerpw" type="text" autocomplete="off"></div>
+    </div>
+  </div>
+
+  <div class="row"><button class="primary" id="dSave">Save</button><button class="quiet" id="dClose" type="button">Close</button></div>
+  <div class="msg" id="dMsg" role="status"></div>
+
+  <div id="editOnly">
+    <h3>Domains</h3>
+    <p>The restaurant opens on these addresses (your DNS must point them at this server).</p>
+    <div id="domains"></div>
+    <div class="row" style="margin-top:8px"><input id="n_domain" type="text" placeholder="order.example.com" style="flex:1;width:auto" aria-label="New domain" autocomplete="off"><button class="quiet" id="addDomain" type="button">Add domain</button></div>
+    <div class="msg" id="domMsg" role="status"></div>
+
+    <h3>Team</h3>
+    <div id="team"></div>
+    <label for="o_email">Make someone an owner</label>
+    <div class="grid">
+      <div><input id="o_email" type="email" placeholder="owner@example.com" autocomplete="off"></div>
+      <div><input id="o_pw" type="text" placeholder="Temporary password (new accounts only)" autocomplete="off"></div>
+    </div>
+    <div class="row" style="margin-top:8px"><button class="quiet" id="addOwner" type="button">Add owner</button></div>
+    <div class="msg" id="teamMsg" role="status"></div>
+  </div>
+</dialog>
+
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const say = (el, t, ok) => { el.textContent = t || ''; el.className = 'msg' + (t ? (ok === true ? ' ok' : ok === false ? ' bad' : '') : ''); };
+
+// The password lives in sessionStorage only: it disappears when the tab is closed.
+let KEY = ''; try { KEY = sessionStorage.getItem('bg_platform_key') || ''; } catch (e) {}
+let TENANTS = [], CUR = null, MODE = 'edit';
+
+async function api(path, { method = 'GET', json } = {}) {
+  const r = await fetch('/api/platform' + path, {
+    method, headers: { authorization: 'Bearer ' + KEY, ...(json ? { 'content-type': 'application/json' } : {}) },
+    body: json ? JSON.stringify(json) : undefined,
+  });
+  let j = null; try { j = await r.json(); } catch (e) {}
+  if (r.status === 401) { const e = new Error('Wrong password'); e.auth = true; throw e; }
+  if (!r.ok) throw new Error((j && j.error) || 'Something went wrong (' + r.status + ')');
+  return j;
+}
+
+function showLogin(msg) { $('app').hidden = true; $('login').hidden = false; say($('loginMsg'), msg, false); $('pw').focus(); }
+function signOut(msg) { KEY = ''; try { sessionStorage.removeItem('bg_platform_key'); } catch (e) {} showLogin(msg); }
+
+async function start() {
+  if (!KEY) return showLogin('');
+  try { await api('/session'); await refresh(); $('login').hidden = true; $('app').hidden = false; }
+  catch (e) { e.auth ? signOut('') : showLogin(e.message); }
+}
+$('signIn').onclick = async () => {
+  KEY = $('pw').value; $('pw').value = '';
+  if (!KEY) return say($('loginMsg'), 'Enter the password', false);
+  try { await api('/session'); try { sessionStorage.setItem('bg_platform_key', KEY); } catch (e) {} await refresh(); $('login').hidden = true; $('app').hidden = false; say($('loginMsg'), ''); }
+  catch (e) { KEY = ''; say($('loginMsg'), e.message, false); }
+};
+$('pw').onkeydown = (e) => { if (e.key === 'Enter') $('signIn').click(); };
+$('signOut').onclick = () => signOut('');
+
+// ---- list -------------------------------------------------------------------
+async function refresh() {
+  const j = await api('/tenants'); TENANTS = j.tenants; render();
+}
+function logoImg(t) {
+  return t.logo_url ? `<img class="logo" src="${esc(t.logo_url)}" alt="" loading="lazy">` : '<div class="logo none">no logo</div>';
+}
+function render() {
+  const q = $('filter').value.trim().toLowerCase();
+  const rows = TENANTS.filter((t) => !q || [t.name, t.slug, t.brand_name, ...t.domains.map((d) => d.domain)].join(' ').toLowerCase().includes(q));
+  $('count').textContent = TENANTS.length;
+  $('list').innerHTML = rows.length ? rows.map((t) => `
+    <div class="rw" data-id="${esc(t.id)}">
+      ${logoImg(t)}
+      <div class="grow"><b>${esc(t.name)}<span class="tag ${t.status === 'active' ? '' : 'off'}">${esc(t.status)}</span></b>
+        <small>${esc(t.slug)}${t.url ? ' · ' + esc(t.url.replace('https://', '')) : ' · no address yet'}</small></div>
+      <div class="acts">
+        ${t.url ? `<a class="quiet" href="${esc(t.url)}" target="_blank" rel="noopener">Site</a><a class="quiet" href="${esc(t.url)}/admin" target="_blank" rel="noopener">Admin</a>` : ''}
+        <button class="quiet" data-act="edit">Edit</button>
+        <button class="quiet ${t.status === 'active' ? 'danger' : ''}" data-act="toggle">${t.status === 'active' ? 'Suspend' : 'Activate'}</button>
+      </div>
+    </div>`).join('') : '<p>No restaurants match.</p>';
+}
+$('filter').oninput = render;
+$('list').onclick = async (e) => {
+  const b = e.target.closest('button[data-act]'); if (!b) return;
+  const t = TENANTS.find((x) => x.id === b.closest('.rw').dataset.id); if (!t) return;
+  if (b.dataset.act === 'edit') return openEdit(t);
+  const next = t.status === 'active' ? 'suspended' : 'active';
+  if (next === 'suspended' && !confirm(`Suspend ${t.name}? Its site and ordering stop immediately. Nothing is deleted.`)) return;
+  try { await api('/tenants/' + t.id, { method: 'PATCH', json: { status: next } }); await refresh(); say($('listMsg'), `${t.name} is now ${next}.`, true); }
+  catch (err) { err.auth ? signOut('') : say($('listMsg'), err.message, false); }
+};
+
+// ---- create / edit dialog -----------------------------------------------------
+try { $('tzs').innerHTML = Intl.supportedValuesOf('timeZone').map((z) => `<option value="${esc(z)}">`).join(''); } catch (e) {}
+const FIELDS = { name: 'd_name', brand_name: 'd_brand', page_title: 'd_title', logo_url: 'd_logo', timezone: 'd_tz', currency: 'd_cur', currency_symbol: 'd_sym', order_prefix: 'd_pre' };
+function logoPv() {
+  const v = $('d_logo').value.trim(), im = $('logoPv');
+  if (!v) { im.style.display = 'none'; im.removeAttribute('src'); return; }
+  im.src = v; im.style.display = 'block';
+}
+$('d_logo').oninput = logoPv;
+function fillDialog(t) {
+  for (const [k, id] of Object.entries(FIELDS)) $(id).value = t ? (t[k] || '') : '';
+  $('d_langs').value = t ? t.languages.join(', ') : 'en';
+  $('d_status').value = t ? t.status : 'active';
+  $('d_slug').value = t ? t.slug : '';
+  ['d_domain', 'd_owner', 'd_ownerpw', 'n_domain', 'o_email', 'o_pw'].forEach((id) => { $(id).value = ''; });
+  ['dMsg', 'domMsg', 'teamMsg'].forEach((id) => say($(id), ''));
+  logoPv();
+}
+function openCreate() {
+  MODE = 'create'; CUR = null; fillDialog(null);
+  $('dTitle').textContent = 'Add restaurant';
+  $('d_slug').disabled = false; $('slugBox').hidden = false;
+  $('createOnly').hidden = false; $('editOnly').hidden = true; $('statusBox').hidden = true;
+  $('dSave').textContent = 'Create restaurant';
+  $('dlg').showModal();
+}
+function openEdit(t) {
+  MODE = 'edit'; CUR = t; fillDialog(t);
+  $('dTitle').textContent = 'Edit ' + t.name;
+  $('d_slug').disabled = true; $('slugBox').hidden = false;
+  $('createOnly').hidden = true; $('editOnly').hidden = false; $('statusBox').hidden = false;
+  $('dSave').textContent = 'Save changes';
+  drawDomains(); loadTeam();
+  $('dlg').showModal();
+}
+$('addBtn').onclick = openCreate;
+$('dClose').onclick = () => $('dlg').close();
+
+$('dSave').onclick = async () => {
+  const body = {};
+  for (const [k, id] of Object.entries(FIELDS)) body[k] = $(id).value.trim();
+  body.languages = $('d_langs').value;
+  if (!body.brand_name) delete body.brand_name;          // blank = follow the restaurant name
+  if (!body.page_title) delete body.page_title;
+  if (MODE === 'create') {
+    body.slug = $('d_slug').value.trim().toLowerCase();
+    for (const k of ['timezone', 'currency', 'currency_symbol', 'order_prefix']) if (!body[k]) delete body[k];   // server defaults
+    body.domain = $('d_domain').value.trim(); body.owner_email = $('d_owner').value.trim(); body.owner_password = $('d_ownerpw').value;
+  } else {
+    body.status = $('d_status').value;
+    for (const k of ['timezone', 'currency', 'currency_symbol', 'order_prefix']) if (!body[k]) delete body[k];
+  }
+  say($('dMsg'), 'Saving…'); $('dSave').disabled = true;
+  try {
+    const j = await api(MODE === 'create' ? '/tenants' : '/tenants/' + CUR.id, { method: MODE === 'create' ? 'POST' : 'PATCH', json: body });
+    await refresh();
+    if (MODE === 'create') { $('dlg').close(); say($('listMsg'), `${j.tenant.name} created.` + (j.owner ? ` ${j.owner.email} is its owner${j.owner.created_account ? ' (new account created)' : ''}.` : ''), true); }
+    else { CUR = TENANTS.find((x) => x.id === CUR.id) || CUR; say($('dMsg'), 'Saved. The site shows the change within a few seconds.', true); }
+  } catch (e) { e.auth ? (($('dlg').close()), signOut('')) : say($('dMsg'), e.message, false); }
+  finally { $('dSave').disabled = false; }
+};
+
+// ---- domains and team (edit only) ---------------------------------------------
+function drawDomains() {
+  const d = CUR.domains;
+  $('domains').innerHTML = d.length ? d.map((x) => `<div class="chip"><span><code>${esc(x.domain)}</code>${x.is_primary ? '<span class="tag">main</span>' : ''}</span><button class="quiet danger" data-dom="${esc(x.domain)}">Remove</button></div>`).join('') : '<p>No domains yet.</p>';
+}
+$('domains').onclick = async (e) => {
+  const b = e.target.closest('button[data-dom]'); if (!b) return;
+  if (!confirm(`Remove ${b.dataset.dom}? That address will stop opening this restaurant.`)) return;
+  try { const j = await api(`/tenants/${CUR.id}/domains/${encodeURIComponent(b.dataset.dom)}`, { method: 'DELETE' }); await afterDomain(j.tenant); say($('domMsg'), 'Removed.', true); }
+  catch (err) { err.auth ? (($('dlg').close()), signOut('')) : say($('domMsg'), err.message, false); }
+};
+async function afterDomain(t) { await refresh(); CUR = TENANTS.find((x) => x.id === t.id) || t; drawDomains(); }
+$('addDomain').onclick = async () => {
+  try { const j = await api(`/tenants/${CUR.id}/domains`, { method: 'POST', json: { domain: $('n_domain').value } }); $('n_domain').value = ''; await afterDomain(j.tenant); say($('domMsg'), 'Added. Point the domain\'s DNS at this server.', true); }
+  catch (err) { err.auth ? (($('dlg').close()), signOut('')) : say($('domMsg'), err.message, false); }
+};
+async function loadTeam() {
+  $('team').innerHTML = '<p>Loading…</p>';
+  try {
+    const j = await api(`/tenants/${CUR.id}/members`);
+    $('team').innerHTML = j.members.length ? j.members.map((m) => `<div class="chip"><span>${esc(m.email || m.user_id)}</span><span class="tag">${esc(m.role)}</span></div>`).join('') : '<p>No team yet. Add an owner below.</p>';
+  } catch (err) { err.auth ? (($('dlg').close()), signOut('')) : ($('team').innerHTML = '<p class="bad">' + esc(err.message) + '</p>'); }
+}
+$('addOwner').onclick = async () => {
+  try {
+    const j = await api(`/tenants/${CUR.id}/owner`, { method: 'POST', json: { email: $('o_email').value, password: $('o_pw').value } });
+    $('o_email').value = ''; $('o_pw').value = '';
+    say($('teamMsg'), `${j.owner.email} is now an owner${j.owner.created_account ? ' (new account created — share the temporary password with them)' : ''}.`, true);
+    loadTeam();
+  } catch (err) { err.auth ? (($('dlg').close()), signOut('')) : say($('teamMsg'), err.message, false); }
+};
+
+start();
+</script>
+</main></body></html>

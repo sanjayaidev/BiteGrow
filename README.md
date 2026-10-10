@@ -53,6 +53,22 @@ The restaurant is found from the hostname:
 - With `BASE_DOMAIN` set, `<slug>.<BASE_DOMAIN>` opens that restaurant (e.g. `redhouse.bitegrow.app`). Custom domains can be listed in `bg_tenant_domains`.
 - Otherwise `DEFAULT_TENANT` is used. Outside production you can also add `?tenant=<slug>` to any URL to try another restaurant.
 
+## Platform admin (all restaurants)
+
+Set `PLATFORM_ADMIN_KEY` in the environment (at least 12 characters; leave it empty to switch the page off) and open `/platform` on any hostname of your deployment. Sign in with that key to:
+
+- see every restaurant, search them, and open each one's site or admin page
+- add a restaurant (web name, name, logo, timezone, currency, languages) with an optional first domain and owner account
+- edit a restaurant's name, tab title, **logo**, timezone, currency, order prefix and languages
+- suspend or re-activate a restaurant (its site shows "currently unavailable"; nothing is deleted)
+- add or remove its domains, and make someone its owner (creating the account with a temporary password if needed)
+
+There is no delete button on purpose: deleting a restaurant would also delete its menu and orders. Suspend it instead.
+
+The key is checked in constant time and wrong guesses are rate limited (10 per 15 minutes per address). It is kept in the browser tab's session storage only, so closing the tab signs you out. Serve the site over HTTPS, and change the key by changing the environment variable and restarting.
+
+Restaurant owners can still set their own **logo** in their admin under Settings → Restaurant details (an `https://` link, or a file shipped in `public/`, such as `img/logo.png`). Leave it empty to show the restaurant's name as text.
+
 ## Dine-in tables and QR codes
 
 In the admin panel, open **Tables** to add tables one by one or as a numbered range (for example 1 to 20, or T1 to T12 with the prefix `T`). Each table gets its own QR code: view, download or print it, or use **Print all QR codes** for a sheet. Scanning a code opens the menu already knowing the table.

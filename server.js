@@ -24,6 +24,7 @@ const { createAdminRouter } = require('./src/routes/admin');
 const { createOrdersAdminRouter } = require('./src/routes/ordersAdmin');
 const { createMetaRouter } = require('./src/routes/meta');
 const { createAssistantRouter } = require('./src/routes/assistant');
+const { createPlatformRouter, MIN_KEY_LENGTH } = require('./src/routes/platform');
 const { createAssistant } = require('./src/lib/assistant');
 const { createSecretBox } = require('./src/lib/secrets');
 
@@ -46,6 +47,9 @@ const auth = createAuth({ supabase });
 const secretBox = createSecretBox();
 const assistant = createAssistant({ supabase });
 
+const onTenantChanged = (id) => { resolver.invalidate(id); storefront.invalidate(id); assistant.invalidate(id); };
+const onMenuChanged = (id) => { storefront.invalidate(id); assistant.invalidate(id); };
+
 const app = express();
 // Hosting platforms put the app behind a proxy; trusting its hop count gives real client IPs and hostnames.
 app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS ?? 1));
@@ -63,6 +67,14 @@ app.use('/webhooks/meta', createMetaRouter({ supabase, assistant, secretBox }));
 
 // The admin page is a static shell; it signs in through /api/auth and every /api/admin call re-checks the role.
 app.get(['/admin', '/admin.html'], (req, res) => res.set('Cache-Control', 'no-store').sendFile(path.join(PUBLIC_DIR, 'admin.html')));
+
+// Platform admin (all restaurants). It belongs to no restaurant, so it mounts before tenant resolution and works on any
+// hostname. Protected by the PLATFORM_ADMIN_KEY environment variable; without a long enough key it stays switched off.
+if (process.env.PLATFORM_ADMIN_KEY && process.env.PLATFORM_ADMIN_KEY.length < MIN_KEY_LENGTH) {
+  console.warn(`PLATFORM_ADMIN_KEY is shorter than ${MIN_KEY_LENGTH} characters, so the platform admin page is switched off.`);
+}
+app.get(['/platform', '/platform.html'], (req, res) => res.set('Cache-Control', 'no-store').sendFile(path.join(PUBLIC_DIR, 'platform.html')));
+app.use('/api/platform', createPlatformRouter({ supabase, onTenantChanged }));
 
 // index.html is only a template for the renderer; served as a file it would show an unfilled page.
 app.get('/index.html', (req, res) => res.redirect(301, '/'));
@@ -107,9 +119,6 @@ app.get('/api/menu', async (req, res, next) => {
     res.set('Cache-Control', 'no-cache').json(menu);
   } catch (err) { next(err); }
 });
-
-const onTenantChanged = (id) => { resolver.invalidate(id); storefront.invalidate(id); assistant.invalidate(id); };
-const onMenuChanged = (id) => { storefront.invalidate(id); assistant.invalidate(id); };
 
 app.use('/api/auth', createAuthRouter({ supabase, auth }));
 app.use('/api/cart', createCartRouter({ supabase, auth }));

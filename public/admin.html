@@ -163,6 +163,9 @@ dialog::backdrop{background:rgba(0,0,0,.65)}dialog h2{margin-top:0}
     <div><label for="s_phone2">Second phone</label><input id="s_phone2" type="text" maxlength="30"></div>
     <div><label for="s_fee">Delivery fee</label><input id="s_fee" type="number" min="0" step="0.01"></div>
   </div>
+  <label for="s_logo">Logo image <small>(an https:// link or a site file like img/logo.png; leave empty to show your name as text)</small></label>
+  <input id="s_logo" type="text" maxlength="600" autocomplete="off" placeholder="https://…/logo.png">
+  <img id="s_logo_pv" class="pv" alt="Logo preview" style="display:none;max-height:80px;background:#000">
   <label for="s_addr">Address</label><input id="s_addr" type="text" maxlength="300">
   <label for="s_map">Map link <small>(https://)</small></label><input id="s_map" type="url">
   <label>Order types</label>
@@ -393,12 +396,17 @@ $('check').onclick = () => importCsv(true); $('imp').onclick = () => importCsv(f
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 // ---- restaurant settings
+function logoPv() {
+  const v = $('s_logo').value.trim(), im = $('s_logo_pv');
+  if (!v) { im.style.display = 'none'; im.removeAttribute('src'); return; }
+  im.src = v; im.style.display = 'block';
+}
 const OT = ['dine_in', 'pickup', 'delivery'];
 async function loadSettings() {
   try {
     const s = await json('settings');
     $('s_brand').value = s.brand_name; $('s_title').value = s.page_title; $('s_phone').value = s.phone; $('s_phone2').value = s.phone2;
-    $('s_fee').value = s.delivery_fee; $('s_addr').value = s.address; $('s_map').value = s.map_url;
+    $('s_fee').value = s.delivery_fee; $('s_addr').value = s.address; $('s_map').value = s.map_url; $('s_logo').value = s.logo_url || ''; logoPv();
     OT.forEach((t) => $('o_' + t).checked = s.order_types.includes(t));
     setWa(s.whatsapp_number, s.features.whatsappOrder !== false); $('f_ar').checked = !!s.features.ar3d;
     HM.f = s.features || {}; renderHome();
@@ -459,12 +467,13 @@ $('saveHrs').onclick = async () => {
     say($('hrsMsg'), 'Saved. The site shows the change on the next page load.', true);
   } catch (e) { say($('hrsMsg'), e.message, false); }
 };
+$('s_logo').oninput = logoPv;
 $('saveS').onclick = async () => {
   say($('sMsg'), 'Saving…');
   try {
     await json('settings', { method: 'PUT', json: {
       brand_name: $('s_brand').value, page_title: $('s_title').value, phone: $('s_phone').value, phone2: $('s_phone2').value,
-      delivery_fee: $('s_fee').value, address: $('s_addr').value, map_url: $('s_map').value,
+      delivery_fee: $('s_fee').value, address: $('s_addr').value, map_url: $('s_map').value, logo_url: $('s_logo').value,
       order_types: OT.filter((t) => $('o_' + t).checked), features: { ar3d: $('f_ar').checked },
     } });
     say($('sMsg'), 'Saved. The site shows the change on the next page load.', true);

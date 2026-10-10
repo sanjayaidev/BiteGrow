@@ -12,6 +12,7 @@
 // "Forgot password". The owner's role can never be changed or removed here, and nobody can remove themselves.
 
 const express = require('express');
+const { findUserByEmail: findUser } = require('../lib/users');
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const ASSIGNABLE = ['admin', 'staff'];
@@ -26,18 +27,7 @@ function createStaffRouter({ supabase }) {
   router.use((req, res, next) => (
     req.staffRole === 'owner' || req.staffRole === 'super' ? next() : res.status(403).json({ error: 'Only the owner can manage the team' })));
 
-  // supabase-js has no "find user by email", so page through the accounts until the address turns up.
-  async function findUserByEmail(email) {
-    for (let page = 1; page <= 20; page++) {
-      const { data, error } = await supabase.auth.admin.listUsers({ page, perPage: 200 });
-      if (error) throw error;
-      const users = (data && data.users) || [];
-      const hit = users.find((u) => String(u.email || '').toLowerCase() === email);
-      if (hit) return hit;
-      if (users.length < 200) return null;
-    }
-    return null;
-  }
+  const findUserByEmail = (email) => findUser(supabase, email);
 
   async function memberOf(tenantId, userId) {
     const { data, error } = await supabase.from('bg_tenant_members').select('user_id, role').eq('tenant_id', tenantId).eq('user_id', userId).maybeSingle();
