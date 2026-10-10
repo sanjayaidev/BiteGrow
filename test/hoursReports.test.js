@@ -99,8 +99,11 @@ function ordersSetup(settings, timezone) {
   ], bg_orders: [], bg_order_items: [] });
   const auth = createAuth({ supabase: db.supabase });
   const T = { ...TENANT_A, timezone, settings: { ...TENANT_A.settings, ...settings } };
-  const app = makeApp((a) => a.use('/api', createOrdersRouter({ supabase: db.supabase, auth })));
-  app.use((req, res, next) => { req.tenant = T; next(); });
+  // The tenant override has to be registered BEFORE the router, or the router never sees it.
+  const app = makeApp((a) => {
+    a.use((req, res, next) => { req.tenant = T; next(); });
+    a.use('/api', createOrdersRouter({ supabase: db.supabase, auth }));
+  });
   return { db, call: null, app };
 }
 const orderBody = { order_type: 'pickup', customer_name: 'Ash', customer_phone: '+917504704502', items: [{ menu_item_id: 1, quantity: 1 }] };

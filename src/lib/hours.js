@@ -137,7 +137,8 @@ function statusAt(schedule, local) {
     const first = wl.sort((a, b) => a.oMin - b.oMin)[0];
     if (first) {
       const label = i === 1 ? 'tomorrow' : DAY_LABEL[day];
-      return { open: false, reason: i === 1 ? 'after_close' : 'before_open', opensAt: hhmm(first.oMin), opensDay: label, message: `We are closed right now. ${label} we open at ${hhmm(first.oMin)}${note}.` };
+      // Today has windows (list is not empty) and none is left, so today is over however far away the next opening is.
+      return { open: false, reason: 'after_close', opensAt: hhmm(first.oMin), opensDay: label, message: `We are closed right now. ${label} we open at ${hhmm(first.oMin)}${note}.` };
     }
     if (i === 7) break;
   }
@@ -150,10 +151,13 @@ function isOpen(settingsRow, instant = new Date()) {
   let raw = settingsRow;
   let at = instant;
   if (settingsRow && typeof settingsRow === 'object' && !(settingsRow instanceof Date)
-    && !Array.isArray(settingsRow) && ('settings' in settingsRow || 'timezone' in settingsRow)) {
-    raw = settingsRow.settings;                 // camelCase fields ride along inside settings too;
-    at = settingsRow.now || instant;            // scheduleFrom reads them as a last resort
+    && !Array.isArray(settingsRow) && 'settings' in settingsRow) {
+    // { settings, timezone, now }: keep the timezone that sits beside the settings.
+    const inner = settingsRow.settings || {};
+    raw = { ...inner, timezone: settingsRow.timezone || inner.timezone };
+    at = settingsRow.now || instant;
   }
+  // Otherwise a flat settings row ({ open_hours, pause_orders, ..., timezone }) is read as it is.
   const sch = scheduleFrom(raw);
   return statusAt(sch, localNow(sch.timezone, at));
 }

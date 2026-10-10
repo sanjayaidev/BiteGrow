@@ -93,9 +93,11 @@ function publicConfig(t, now = new Date()) {
   const hours = require('./lib/hours');
   // The library reads the raw database column names (open_hours / open_note / pause_orders /
   // pause_until), while shapeTenant hands us camelCase fields — translate before asking for status.
+  // Either shape works: camelCase from shapeTenant, or the raw database column names.
+  const pick = (snake, camel) => (s[snake] !== undefined ? s[snake] : s[camel]);
   const raw = {
-    open_hours: s.openHours, open_note: s.openNote,
-    pause_orders: s.pauseOrders, pause_until: s.pauseUntil,
+    open_hours: pick('open_hours', 'openHours'), open_note: pick('open_note', 'openNote'),
+    pause_orders: pick('pause_orders', 'pauseOrders'), pause_until: pick('pause_until', 'pauseUntil'),
     timezone: t.timezone,
   };
   const status = hours.isOpen(raw, now);
@@ -128,7 +130,7 @@ function publicConfig(t, now = new Date()) {
     features: s.features,
     // Opening hours for the footer and the "ready by" picker. Wall-clock strings in the restaurant's own timezone.
     openHours,
-    openNote: s.openNote,
+    openNote: raw.open_note || '',
     timezone: t.timezone || 'UTC',
     assistant: !!(t.integrations && t.integrations.assistantOn),
     assistantGreeting: (t.integrations && t.integrations.assistantGreeting) || '',
