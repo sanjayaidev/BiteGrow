@@ -17,6 +17,7 @@ const express = require('express');
 const rateLimit = require('express-rate-limit');
 const { pick } = require('../render');
 const { toCents, fromCents, normalizeLines, fetchAvailableItems } = require('../lib/orderMath');
+const { isOpen, statusAt, scheduleFrom, windowsFor, localMidnightMs } = require('../lib/hours');
 
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const clean = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
@@ -42,6 +43,7 @@ function whatsappUrl(tenant, order, details) {
   const lines = [
     `${s.brandName} - order ${order.order_number}`,
     `Type: ${TYPE_LABEL[details.orderType]}${details.tableLabel ? ` (table ${details.tableLabel})` : ''}`,
+    ...(details.readyBy ? [`Ready by: ${details.readyBy}`] : []),
     `Name: ${details.name}`,
     ...(details.phone ? [`Phone: ${details.phone}`] : []),
     ...(details.address ? [`Address: ${details.address}`] : []),
@@ -54,6 +56,36 @@ function whatsappUrl(tenant, order, details) {
     ...(details.notes ? ['', `Notes: ${details.notes}`] : []),
   ];
   return `https://wa.me/${number}?text=${encodeURIComponent(lines.join('\n'))}`;
+}
+
+// Scheduled orders: "ready by 19:30". The customer picks a local wall-clock time in the
+// restaurant's timezone; we store the real instant plus what they typed. A scheduled order may
+// arrive while the kitchen is shut (order tonight for tomorrow lunch), so it skips the open check
+// — but only if the chosen moment actually falls inside the schedule, otherwise it is rejected.
+// Returns { readyAt, leadMinutes, display } or { error }.
+function parseReadyAt(tenant, raw) {
+  const v = clean(raw, 32);
+  if (!v) return {};                                     // no field -> ordinary ASAP order
+  const d = new Date(v);
+  if (!Number.isFinite(d.getTime())) return { error: 'That ready-by time does not look right' };
+
+  const sch = scheduleFrom({ ...tenant.settings, timezone: tenant.timezone });
+  const nowMs = Date.now();
+  const minLead = 15;                                    // kitchen needs a little prep time
+  if (d.getTime() < nowMs + minLead * 60_000) {
+    return { error: `Orders need to be scheduled at least ${minLead} minutes ahead` };
+  }
+  if (d.getTime() > nowMs + 30 * 86_400_000) return { error: 'We can schedule up to 30 days ahead' };
+
+  const st = statusAt(sch, localNow(sch.timezone, d));
+  if (!st.open) return { error: `We are not open at ${st.message.replace(/\.$/, '').trim()} — please pick a time when we are open` };
+
+  const loc = localNow(sch.timezone, d);
+  return {
+    readyAt: d.toISOString(),
+    leadMinutes: Math.round((d.getTime() - nowMs) / 60_000),
+    display: `${String(Math.floor(loc.hm / 60)).padStart(2, '0')}:${String(loc.hm % 60).padStart(2, '0')} on ${loc.iso}`,
+  };
 }
 
 function createOrdersRouter({ supabase, auth, createLimit = 20, lookupLimit = 60 }) {
@@ -87,6 +119,16 @@ function createOrdersRouter({ supabase, auth, createLimit = 20, lookupLimit = 60
   router.post('/orders', createLimiter, asyncHandler(async (req, res) => {
     const tenant = req.tenant;
     const b = req.body || {};
+
+    // ---- opening hours gate -------------------------------------------------------------
+    // No 3 a.m. orders: while the owner paused orders, or outside the published schedule,
+    // the kitchen is not taking ASAP orders. A scheduled "ready by" order is allowed only
+    // when the restaurant itself is open right now (order tonight for tomorrow lunch — but
+    // never through a manual pause, and never from a page that has been open since closing).
+    const st = isOpen({ ...tenant.settings, timezone: tenant.timezone });
+    if (!st.open) return res.status(409).json({ error: st.message, open_status: st });
+    const ready = parseReadyAt(tenant, b.ready_at);
+    if (ready.error) return res.status(400).json({ error: ready.error });
 
     const orderType = b.order_type;
     if (!['dine_in', 'pickup', 'delivery'].includes(orderType) || !tenant.settings.orderTypes.includes(orderType)) {
@@ -153,6 +195,8 @@ function createOrdersRouter({ supabase, auth, createLimit = 20, lookupLimit = 60
       delivery_fee: fromCents(feeCents),
       total: fromCents(totalCents),
       notes: notes || null,
+      ready_at: ready.readyAt || null,
+      lead_minutes: ready.leadMinutes != null ? ready.leadMinutes : (ready.readyAt ? 15 : null),
     }).select('id, order_number, order_token, status, payment_status').single();
     if (oErr) throw oErr;
 
@@ -189,9 +233,10 @@ function createOrdersRouter({ supabase, auth, createLimit = 20, lookupLimit = 60
       currency: tenant.currency,
       status: order.status,
       payment_status: order.payment_status,
+      ready_at: ready.readyAt || null,
       whatsapp_url: whatsappUrl(tenant, order, {
         orderType, tableLabel, name, phone, address: orderType === 'delivery' ? address : '', notes,
-        items, subtotalCents, feeCents, totalCents,
+        items, subtotalCents, feeCents, totalCents, readyBy: ready.display || null,
       }),
     });
   }));
@@ -236,6 +281,7 @@ function createOrdersRouter({ supabase, auth, createLimit = 20, lookupLimit = 60
       total: Number(order.total),
       currency: order.currency,
       notes: order.notes,
+      ready_at: order.ready_at || null,
       created_at: order.created_at,
       items: (rows || []).map((r) => ({
         name: r.name_snapshot, quantity: r.quantity, unit_price: Number(r.unit_price), line_total: Number(r.line_total),

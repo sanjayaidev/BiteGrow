@@ -436,7 +436,97 @@ if (tt && /^[0-9a-f]{8,64}$/.test(tt)) fetch('/api/table/' + tt).then(r => r.ok 
 
 /* ---- small form helpers ---- */
 const field = (id, label, o = {}) => `<label class="fl" for="${id}">${label}</label><input class="fi" id="${id}" type="${o.type || 'text'}" value="${esc(o.value || '')}" ${o.attrs || ''}>`;
+
+/* ================= OPENING HOURS: banner, footer schedule and the "ready by" picker =================
+   CFG.openStatus / CFG.openHours come from publicConfig (src/tenant.js) — wall-clock times in the
+   restaurant's own timezone. The banner is a hint only; the server re-checks everything on POST. */
+const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+const DAY_NAMES = { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun' };
+const pad2 = n => String(n).padStart(2, '0');
+function hoursWindows(day) {                       // ranges for one day key, falling back to the weekly default
+  const h = CFG.openHours || {};
+  const list = Array.isArray(h[day]) ? h[day] : (Array.isArray(h.default) ? h.default : []);
+  return list.filter(w => w && /^\d{1,2}:\d{2}$/.test(w.open || '') && /^\d{1,2}:\d{2}$/.test(w.close || ''));
+}
+function fmtRange(w) {                             // "11:30–22:00", overnight closes marked
+  const cross = w.close <= w.open;
+  return `${w.open}–${w.close}${cross ? ' (+1)' : ''}`;
+}
+function localNowInTz() {                          // the restaurant's wall clock, computed in the browser
+  try {
+    const p = new Intl.DateTimeFormat('en-GB', { timeZone: CFG.timezone || 'UTC', hour12: false, weekday: 'short', hour: '2-digit', minute: '2-digit' }).formatToParts(new Date());
+    const g = t => p.find(x => x.type === t).value;
+    const hm = (Number(g('hour')) % 24) * 60 + Number(g('minute'));
+    const dow = { Sun: 'sun', Mon: 'mon', Tue: 'tue', Wed: 'wed', Thu: 'thu', Fri: 'fri', Sat: 'sat' }[g('weekday')];
+    return { dow, hm };
+  } catch (_) { const d = new Date(); return { dow: DAY_KEYS[d.getDay()], hm: d.getHours() * 60 + d.getMinutes() }; }
+}
+// True if `mins` (minutes since that calendar day's midnight, restaurant wall clock) falls inside a window.
+function minsInWindow(w, mins) {
+  const [oh, om] = w.open.split(':').map(Number), [ch, cm] = w.close.split(':').map(Number);
+  const o = oh * 60 + om, c = ch * 60 + cm;
+  return c <= o ? (mins >= o || mins < c) : (mins >= o && mins < c);
+}
+function nextOpenLocal(from) {                     // soonest opening after {dow,hm}; returns {dateStr, hm, label} or null
+  const idx = DAY_KEYS.indexOf(from.dow);
+  for (let i = 0; i < 7; i++) {
+    const day = DAY_KEYS[(idx + i) % 7];
+    const ws = hoursWindows(day).map(w => ({ w, o: Number(w.open.slice(0, 2)) * 60 + Number(w.open.slice(3)) }))
+      .filter(x => (i > 0 || x.o >= from.hm + 15)).sort((a, b) => a.o - b.o);
+    if (ws.length) {
+      const d = new Date(Date.now() + i * 86400000);
+      try { Object.assign(d, {}); } catch (_) {}
+      const dateStr = new Intl.DateTimeFormat('en-CA', { timeZone: CFG.timezone || 'UTC', year: 'numeric', month: '2-digit', day: '2-digit' })
+        .format(new Date(Date.now() + i * 86400000));
+      return { dateStr, hm: ws[0].o, label: i === 0 ? 'today' : (i === 1 ? 'tomorrow' : DAY_NAMES[day]) };
+    }
+  }
+  return null;
+}
+const OS = CFG.openStatus || {};
+if (OS.open === false) {                           // "closed now" strip under the header
+  const bar = document.createElement('div');
+  bar.className = 'closed-bar'; bar.id = 'closedBar';
+  bar.innerHTML = `<b>Closed</b> — ${esc(OS.message || 'We are not taking orders right now.')}` +
+    (CFG.canSchedule !== false ? ' You can still schedule an order for when we open.' : '');
+  document.querySelector('.first-screen').after(bar);
+}
+// Ready-by choice: ASAP (default) or a scheduled time; the input holds "YYYY-MM-DDTHH:MM" local-to-the-restaurant.
+function readyByHtml(type, prev) {
+  if (type === 'dine_in' || CFG.canSchedule === false) return '';
+  const v = prev && prev.ready ? prev.ready : '';
+  return `<label class="fl" for="c_ready">When should it be ready?</label>
+    <div class="seg"><button data-ready="asap" class="${v ? '' : 'on'}">As soon as possible</button><button data-ready="sched" class="${v ? 'on' : ''}">Pick a time</button></div>
+    ${v ? `<input class="fi" id="c_ready" type="datetime-local" value="${esc(v)}" min="${esc(readyMinValue())}">` : '<p class="muted" style="margin:6px 0 0" id="readyHint">Tap "Pick a time" to schedule for later today.</p>'}`;
+}
+function readyMinValue() {                         // earliest schedulable moment: 15 minutes ahead, in the restaurant's clock
+  const d = new Date(Date.now() + 15 * 60000);
+  try {
+    const p = new Intl.DateTimeFormat('en-CA', { timeZone: CFG.timezone || 'UTC', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(d);
+    const g = t => p.find(x => x.type === t).value;
+    return `${g('year')}-${g('month')}-${g('day')}T${String(Number(g('hour')) % 24).padStart(2, '0')}:${g('minute')}`;
+  } catch (_) { return d.toISOString().slice(0, 16); }
+}
 const val = id => { const el = $('#' + id, cardEl); return el ? el.value.trim() : ''; };
+// "2026-10-10T19:30" typed against the restaurant's clock -> a real instant (ISO) in that timezone.
+function localInputToIso(v) {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(v)) return null;
+  const tz = CFG.timezone || 'UTC';
+  const [datePart, timePart] = v.split('T');
+  const [y, mo, d] = datePart.split('-').map(Number);
+  const [hh, mm] = timePart.split(':').map(Number);
+  const guess = new Date(Date.UTC(y, mo - 1, d, hh, mm));
+  for (let i = 0; i < 3; i++) {                     // walk the UTC offset until the wall clock matches
+    const shown = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(guess);
+    const want = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}, ${pad2(d)}/${pad2(mo)}/${y}`;   // en-GB pads month and day
+    if (shown === want) break;
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).formatToParts(guess);
+    const g = t => Number(parts.find(x => x.type === t).value);
+    const asUtc = Date.UTC(g('year'), g('month') - 1, g('day'), g('hour') % 24, g('minute'));
+    guess.setTime(guess.getTime() + (Date.UTC(y, mo - 1, d, hh, mm) - asUtc));
+  }
+  return guess.toISOString();
+}
 const say = (t, ok) => { const m = $('#fmsg', cardEl); if (m) { m.textContent = t; m.className = 'fmsg' + (ok ? ' ok' : ''); } };
 const MSG = '<p class="fmsg" id="fmsg" role="status"></p>';
 async function run(t, fn) { t.disabled = true; try { await fn(); } catch (e) { say(e.message); } finally { t.disabled = false; } }
@@ -467,7 +557,7 @@ function openBasket() {
   const rows = lines.map(([id, q]) => { const i = byId(id); return `<div class="line"><span>${esc(i.name)}<br><small style="color:var(--muted)">${money(i.price)}</small></span><span class="qty"><button data-dec="${id}">−</button> ${q} <button data-add="${id}" data-stay>+</button></span></div>`; }).join('');
   open(`<h3>Your basket</h3>${rows}<div class="total"><span>Total</span><span>${money(cartTotal())}</span></div>${session ? '' : '<p class="muted" style="margin:10px 0 0">Sign in to keep your basket on every device.</p>'}<button class="btn" data-checkout>Checkout</button><button class="btn ghost" data-close>Keep browsing</button>`);
 }
-const readForm = () => ({ name: val('c_name'), phone: val('c_phone'), addr: val('c_addr'), notes: val('c_notes'), table: val('c_table') });
+const readForm = () => ({ name: val('c_name'), phone: val('c_phone'), addr: val('c_addr'), notes: val('c_notes'), table: val('c_table'), ready: val('c_ready') });
 function openCheckout(prev = {}) {
   if (!cartLines().length) return openBasket();
   if (!prev.type) track('InitiateCheckout', { ...pixelLines(cartLines()), value: cartTotal(), currency: CFG.currencyCode });   // not again when only the order type is switched
@@ -480,6 +570,7 @@ function openCheckout(prev = {}) {
     ${field('c_name', 'Your name', { value: prev.name != null ? prev.name : p.display_name, attrs: 'autocomplete="name" maxlength="80"' })}
     ${field('c_phone', 'Phone' + (type === 'dine_in' ? ' (optional)' : ''), { type: 'tel', value: prev.phone != null ? prev.phone : p.phone, attrs: 'autocomplete="tel" maxlength="20"' })}
     ${type === 'delivery' ? field('c_addr', 'Delivery address', { value: prev.addr != null ? prev.addr : p.address, attrs: 'autocomplete="street-address" maxlength="300"' }) : ''}
+    ${readyByHtml(type, prev)}
     ${field('c_notes', 'Notes (optional)', { value: prev.notes, attrs: 'maxlength="300"' })}
     <div class="line"><span>Subtotal</span><span>${money(sub)}</span></div>${fee ? `<div class="line"><span>Delivery</span><span>${money(fee)}</span></div>` : ''}
     <div class="total"><span>Total</span><span>${money(sub + fee)}</span></div>${MSG}
@@ -501,6 +592,14 @@ async function placeOrder() {
     items: lines.map(([id, q]) => ({ menu_item_id: id, quantity: q })),
   };
   if (type === 'dine_in') { if (tableInfo) body.table_token = tableInfo.token; else body.table_label = table; }
+  if (type !== 'dine_in' && f.ready) {                       // scheduled "ready by": local wall clock -> real instant
+    const iso = localInputToIso(f.ready);
+    if (!iso) throw new Error('Please pick a valid date and time');
+    const now = Date.now();
+    if (iso < new Date(now - 60_000).toISOString()) throw new Error('That time is in the past');
+    if (iso > new Date(now + 31 * 86400000).toISOString()) throw new Error('We can schedule up to 30 days ahead');
+    body.ready_at = iso;
+  }
 
   let o;
   try { o = await api('/api/orders', { method: 'POST', body }); }
@@ -628,6 +727,14 @@ cardEl.addEventListener('click', e => {
   else if (d.dec) { const id = +d.dec; setQty(id, (basket.get(id) || 0) - 1); openBasket(); }
   else if ('checkout' in d) openCheckout();
   else if (d.type) openCheckout({ ...readForm(), type: d.type });
+  else if (d.ready) {                                    // ASAP <-> pick a time, without losing what was typed
+    const prev = { ...readForm() };
+    if (d.ready === 'sched') {
+      const nx = nextOpenLocal(localNowInTz());
+      prev.ready = val('c_ready') || (nx ? `${nx.dateStr}T${pad2(Math.floor(nx.hm / 60))}:${pad2(nx.hm % 60)}` : '');
+    } else prev.ready = '';
+    openCheckout(prev);
+  }
   else if (d.act) run(t, ACTS[d.act]);
   else if (d.trk) run(t, () => openTrack(d.trk, ''));
   else if (d.again) reorder(d.again);
@@ -638,10 +745,20 @@ cardEl.addEventListener('click', e => {
 // Enter submits the form's main button.
 cardEl.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('input')) { const b = cardEl.querySelector('.btn[data-act]'); if (b) b.click(); } });
 
-/* ---- footer: address, phone, language ---- */
+/* ---- footer: address, opening hours, phone, language ---- */
 (() => {
   const info = $('#info'), bits = [], safe = /^https?:\/\//i;
   if (CFG.address) bits.push(CFG.mapUrl && safe.test(CFG.mapUrl) ? `<a href="${esc(CFG.mapUrl)}" target="_blank" rel="noopener">${esc(CFG.address)}</a>` : esc(CFG.address));
+  // Weekly schedule from CFG.openHours; today's row is marked, the live status line comes from the server.
+  const hasHours = CFG.openHours && typeof CFG.openHours === 'object' && (Object.keys(CFG.openHours).length || Array.isArray(CFG.openHours.default));
+  if (hasHours || OS.message) {
+    const now = localNowInTz();
+    const rows = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].map(d => {
+      const ws = hoursWindows(d);
+      return `<li${d === now.dow ? ' class="today"' : ''}><span>${DAY_NAMES[d]}</span><span>${ws.length ? esc(ws.map(fmtRange).join(', ')) : 'Closed'}</span></li>`;
+    }).join('');
+    bits.push(`<div class="hours"><p><b>Opening hours</b>${OS.open ? ` — <span class="open-tag">Open now</span>` : ` — <span class="closed-tag">Closed</span>`}</p><ul>${rows}</ul>${CFG.openNote ? `<p class="muted">${esc(CFG.openNote)}</p>` : ''}${OS.open === false ? `<p class="muted">${esc(OS.message || '')}</p>` : ''}</div>`);
+  }
   [CFG.phone, CFG.phone2].filter(Boolean).forEach(p => bits.push(`<a href="tel:${esc(String(p).replace(/[^\d+]/g, ''))}">${esc(p)}</a>`));
   info.innerHTML = bits.map(b => `<p>${b}</p>`).join('');
   if ((CFG.languages || []).length > 1) {

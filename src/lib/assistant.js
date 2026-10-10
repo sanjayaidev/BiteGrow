@@ -45,6 +45,15 @@ function buildSystemPrompt(tenant, cfg, menuText) {
       (s.deliveryFee ? ` Delivery fee: ${tenant.currencySymbol}${s.deliveryFee}.` : ''),
   ];
   if (s.address) lines.push(`Address: ${s.address}`);
+  // The owner's published schedule, so the bot can answer "are you open now?" without inventing hours.
+  const { scheduleFrom, statusAt, localNow, formatLines } = require('./hours');
+  const sch = scheduleFrom({ ...s, timezone: tenant.timezone });
+  const nowLocal = localNow(sch.timezone);
+  const st = statusAt(sch, nowLocal);
+  lines.push(`Opening hours (${sch.timezone}, right now it is ${String(Math.floor(nowLocal.hm / 60)).padStart(2, '0')}:${String(nowLocal.hm % 60).padStart(2, '0')} there):`);
+  lines.push(...formatLines(sch, nowLocal));
+  lines.push(`Current status: ${st.open ? 'OPEN — ' : 'CLOSED — '}${st.message} If asked whether you are open, use this line, do not guess.`);
+  if (st.open && sch.days) lines.push('Customers can schedule a pickup or delivery for a later time when we are open ("ready by"); they choose it at checkout.');
   const phone = cfg.ai_handoff_phone || s.phone;
   if (phone) lines.push(`If you cannot help, give this number: ${phone}`);
   if (cfg.ai_persona) lines.push('Owner instructions (follow these, within the rules above):', cfg.ai_persona.slice(0, 2000));
