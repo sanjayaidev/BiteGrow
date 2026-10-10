@@ -10,6 +10,7 @@
 //   PUT  /api/admin/integrations/ai
 //   POST /api/admin/integrations/ai/test   try the assistant from the admin page
 //   /api/admin/media/*                     hero + special videos and the five Special dishes (see media.js)
+//   /api/admin/tables/*                    dine-in tables and their QR codes (see tablesAdmin.js)
 
 const express = require('express');
 const multer = require('multer');
@@ -19,6 +20,7 @@ const { defaultsFor, CHANNELS } = require('../lib/assistant');
 const { isConfigured: aiConfigured } = require('../lib/dashscope');
 const { createMediaRouter } = require('./media');
 const { createMenuAdminRouter } = require('./menuAdmin');
+const { createTablesRouter } = require('./tablesAdmin');
 
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const str = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : undefined);
@@ -34,6 +36,9 @@ function createAdminRouter({ supabase, auth, secretBox, assistant, onTenantChang
 
   // ---- per-dish and per-category editing (/categories, /items) -----------
   router.use('/', createMenuAdminRouter({ supabase, onMenuChanged }));
+
+  // ---- dine-in tables and their QR codes (/tables) -----------------------
+  router.use('/tables', createTablesRouter({ supabase }));
 
   // ---- homepage videos ---------------------------------------------------
   router.use('/media', createMediaRouter({ supabase, onMediaChanged: onMenuChanged, ...mediaOptions }));

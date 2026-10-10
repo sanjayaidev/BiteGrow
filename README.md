@@ -53,6 +53,16 @@ The restaurant is found from the hostname:
 - With `BASE_DOMAIN` set, `<slug>.<BASE_DOMAIN>` opens that restaurant (e.g. `redhouse.bitegrow.app`). Custom domains can be listed in `bg_tenant_domains`.
 - Otherwise `DEFAULT_TENANT` is used. Outside production you can also add `?tenant=<slug>` to any URL to try another restaurant.
 
+## Dine-in tables and QR codes
+
+In the admin panel, open **Tables** to add tables one by one or as a numbered range (for example 1 to 20, or T1 to T12 with the prefix `T`). Each table gets its own QR code: view, download or print it, or use **Print all QR codes** for a sheet. Scanning a code opens the menu already knowing the table.
+
+Once a restaurant has any table here, checkout accepts only those tables. With none, customers type their own table number. Switching a table off or deleting it makes its printed QR code stop working; renaming keeps it working.
+
+## Order status
+
+After ordering, customers can tap **Track my order** to see a live step list (Received, Confirmed, Being prepared, Ready, Completed) that refreshes by itself. Guests can return to their last order from the same device through the basket or sign-in screens; signed-in customers can track any order under **My orders**.
+
 ## Tests
 
 ```
@@ -67,7 +77,7 @@ The tests run against an in-memory fake of the database, so they need no Supabas
 server.js            app setup and route mounting
 src/tenant.js        hostname -> restaurant lookup
 src/render.js        server-side storefront rendering
-src/routes/          auth, cart, orders, admin, menu, media, Meta webhook, assistant
+src/routes/          auth, cart, orders, admin, menu, tables, media, Meta webhook, assistant
 src/lib/             order maths, CSV import, assistant, secrets, AI client
 src/middleware/      sign-in and role checks
 public/              storefront (index.html is a template), admin.html, assets

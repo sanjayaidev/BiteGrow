@@ -54,6 +54,7 @@ dialog::backdrop{background:rgba(0,0,0,.65)}dialog h2{margin-top:0}
 .st{display:inline-block;font-size:11px;border:1px solid var(--line);border-radius:999px;padding:1px 8px;margin-right:4px}.st.new{color:#1a1408;background:var(--gold);border-color:var(--gold)}
 .st.pending{color:var(--gold)}.st.ready{color:var(--ok)}.st.cancelled{color:var(--bad)}.st.paid{color:var(--ok)}
 .seg{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}.seg button{background:none;border:1px solid var(--line);color:var(--muted);border-radius:999px;padding:5px 12px;font:inherit;font-size:13px;cursor:pointer}.seg button[aria-pressed=true]{color:#1a1408;background:var(--gold);border-color:var(--gold)}
+.qrbox{width:min(100%,280px);margin:10px auto;background:#fff;border-radius:8px;overflow:hidden}.qrbox svg{display:block;width:100%;height:auto}
 [hidden]{display:none!important}
 </style></head><body><main>
 
@@ -71,6 +72,7 @@ dialog::backdrop{background:rgba(0,0,0,.65)}dialog h2{margin-top:0}
 <nav role="tablist" id="tabs">
   <button role="tab" data-t="orders" aria-selected="true">Orders</button>
   <button role="tab" data-t="menu" aria-selected="false">Menu</button>
+  <button role="tab" data-t="tables" aria-selected="false">Tables</button>
   <button role="tab" data-t="settings" aria-selected="false">Restaurant</button>
   <button role="tab" data-t="media" aria-selected="false">Homepage</button>
   <button role="tab" data-t="meta" aria-selected="false">Meta</button>
@@ -109,6 +111,25 @@ dialog::backdrop{background:rgba(0,0,0,.65)}dialog h2{margin-top:0}
   <div class="row"><button class="quiet" id="check">Check file</button><button class="primary" id="imp">Import menu</button></div>
   <div class="msg" id="impMsg" role="status"></div><ul class="errs" id="impErrs"></ul>
 </section>
+</div>
+
+<div data-p="tables" hidden>
+<section>
+  <div class="head"><h2>Dine-in tables</h2><button class="quiet" id="tbPrint">Print all QR codes</button></div>
+  <p>Add your tables, then print a QR code for each one. A customer who scans it opens the menu already knowing their table. Once you add tables here, checkout accepts only these tables; with none, customers type their own table number.</p>
+  <label for="tb_name">Add one table <small>(a number or a name)</small></label>
+  <div class="tools"><input type="text" id="tb_name" maxlength="20" placeholder="e.g. 12 or Patio"><button class="primary" id="tbAdd">Add</button></div>
+  <label>Or add a numbered range</label>
+  <div class="grid2">
+    <div><label for="tb_from" style="margin-top:0">First</label><input type="number" id="tb_from" min="0" step="1" value="1"></div>
+    <div><label for="tb_to" style="margin-top:0">Last</label><input type="number" id="tb_to" min="0" step="1" value="10"></div>
+  </div>
+  <label for="tb_prefix">Prefix <small>(optional, e.g. T gives T1, T2…)</small></label><input type="text" id="tb_prefix" maxlength="10">
+  <div class="row"><button class="quiet" id="tbRange">Add tables</button></div>
+  <div class="msg" id="tbMsg" role="status"></div>
+  <div class="list" id="tbs">Loading…</div>
+</section>
+<dialog id="qrDlg" aria-label="Table QR code"></dialog>
 </div>
 
 <div data-p="settings" hidden>
@@ -241,7 +262,7 @@ async function start() {
   $('login').hidden = true; $('app').hidden = false;
   // Kitchen staff only work with orders; the settings, menu and integrations stay with owners and admins.
   document.querySelectorAll('#tabs button').forEach((b) => { b.hidden = kitchenOnly && b.dataset.t !== 'orders'; });
-  if (!kitchenOnly) { loadSettings(); loadIntegrations(); loadMedia(); loadMenu(); }
+  if (!kitchenOnly) { loadSettings(); loadIntegrations(); loadMedia(); loadMenu(); loadTables(); }
   startOrders();
   const cfg = await fetch('/api/config').then((r) => r.json()).catch(() => ({})); if (cfg.brand) $('title').textContent = cfg.brand + ' admin';
 }
@@ -619,6 +640,83 @@ $('ords').onclick = async (e) => {
   card.querySelectorAll('button').forEach((x) => { x.disabled = true; });
   try { await json('orders/' + encodeURIComponent(id), { method: 'PATCH', json: body }); await loadOrders(); say($('ordMsg'), 'Order updated.', true); }
   catch (err) { say($('ordMsg'), err.message, false); await loadOrders(); }
+};
+
+// ---- Dine-in tables and QR codes
+const TB = { rows: [] };
+const byLabel = (a, b) => a.label.localeCompare(b.label, undefined, { numeric: true });
+async function loadTables() {
+  try { TB.rows = (await json('tables')).tables.sort(byLabel); renderTables(); }
+  catch (e) { $('tbs').textContent = e.message; }
+}
+function renderTables() {
+  $('tbs').innerHTML = TB.rows.length
+    ? TB.rows.map((t) => `<div class="rw"><div class="grow"><b>${esc(t.label)}${t.is_active ? '' : '<span class="tag off">Off</span>'}</b><small>${t.is_active ? 'Ready to scan' : 'Switched off: scanning its QR code shows an error'}</small></div><label class="sw"><input type="checkbox" data-tv="${t.id}" ${t.is_active ? 'checked' : ''}>On</label><button class="quiet" data-tq="${t.id}">QR code</button><button class="quiet" data-te="${t.id}">Rename</button><button class="quiet" data-td="${t.id}">Delete</button></div>`).join('')
+    : '<p>No tables yet. Customers type their own table number until you add some.</p>';
+}
+async function addTable(body, done) {
+  say($('tbMsg'), 'Adding…');
+  try { const j = await json('tables', { method: 'POST', json: body }); await loadTables(); say($('tbMsg'), done(j), true); }
+  catch (e) { say($('tbMsg'), e.message, false); }
+}
+$('tbAdd').onclick = () => addTable({ label: $('tb_name').value }, (j) => { $('tb_name').value = ''; return `Added table ${j.table.label}.`; });
+$('tb_name').onkeydown = (e) => { if (e.key === 'Enter') $('tbAdd').click(); };
+$('tbRange').onclick = () => addTable({ from: $('tb_from').value === '' ? null : Number($('tb_from').value), to: $('tb_to').value === '' ? null : Number($('tb_to').value), prefix: $('tb_prefix').value },
+  (j) => `${j.created.length} table${j.created.length === 1 ? '' : 's'} added` + (j.skipped.length ? `, ${j.skipped.length} already existed (${j.skipped.slice(0, 8).join(', ')}${j.skipped.length > 8 ? '…' : ''}).` : '.'));
+
+$('tbs').onchange = async (e) => {
+  const cb = e.target.closest('[data-tv]'); if (!cb) return;
+  try { await json('tables/' + cb.dataset.tv, { method: 'PATCH', json: { is_active: cb.checked } }); await loadTables(); say($('tbMsg'), cb.checked ? 'Table switched on.' : 'Table switched off. Its QR code no longer works.', true); }
+  catch (err) { say($('tbMsg'), err.message, false); await loadTables(); }
+};
+$('tbs').onclick = async (e) => {
+  const btn = e.target.closest('[data-tq],[data-te],[data-td]'); if (!btn) return;
+  const id = Number(btn.dataset.tq || btn.dataset.te || btn.dataset.td);
+  const t = TB.rows.find((x) => x.id === id); if (!t) return;
+  if ('tq' in btn.dataset) return showQr(t);
+  if ('te' in btn.dataset) {
+    const name = prompt('New name for table ' + t.label + ' (its QR code stays the same):', t.label);
+    if (name === null || name.trim() === t.label) return;
+    try { await json('tables/' + id, { method: 'PATCH', json: { label: name } }); await loadTables(); say($('tbMsg'), 'Renamed.', true); } catch (err) { say($('tbMsg'), err.message, false); }
+    return;
+  }
+  if (!confirm(`Delete table ${t.label}? Its printed QR code will stop working. Past orders are kept.`)) return;
+  try { await json('tables/' + id, { method: 'DELETE' }); await loadTables(); say($('tbMsg'), 'Table deleted.', true); } catch (err) { say($('tbMsg'), err.message, false); }
+};
+
+const qrDlg = $('qrDlg');
+const fileSafe = (s) => String(s).replace(/[^\w-]+/g, '_');
+async function showQr(t) {
+  qrDlg.innerHTML = `<h2>Table ${esc(t.label)}</h2><p>Print this and put it on the table. Scanning it opens the menu for this table.</p><div class="qrbox" id="qrBox">Loading…</div><p><code>${esc(t.url)}</code></p><div class="row"><button class="primary" id="qrPrint">Print</button><button class="quiet" id="qrSave">Download SVG</button><button class="quiet" id="qrX">Close</button></div><div class="msg" id="qrMsg" role="status"></div>`;
+  if (!qrDlg.open) { qrDlg.showModal ? qrDlg.showModal() : qrDlg.setAttribute('open', ''); }
+  $('qrX').onclick = () => { qrDlg.close ? qrDlg.close() : qrDlg.removeAttribute('open'); };
+  try {
+    const r = await api(`tables/${t.id}/qr.svg`); if (!r.ok) throw new Error('Could not load the QR code');
+    const svg = await r.text(); $('qrBox').innerHTML = svg;
+    $('qrPrint').onclick = () => printCards([{ label: t.label, svg }]);
+    $('qrSave').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' })); a.download = `table-${fileSafe(t.label)}.svg`; a.click(); URL.revokeObjectURL(a.href); };
+  } catch (err) { $('qrBox').textContent = ''; say($('qrMsg'), err.message, false); }
+}
+// One card per table on a printable page (an invisible frame, so the admin page itself is left alone).
+function printCards(cards) {
+  const brand = esc($('s_brand').value.trim());
+  const body = cards.map((c) => `<div class="card">${brand ? `<h1>${brand}</h1>` : ''}<h2>Table ${esc(c.label)}</h2><div class="q">${c.svg}</div><p>Scan to see the menu and order</p></div>`).join('');
+  const f = document.createElement('iframe'); f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0'; document.body.appendChild(f);
+  const d = f.contentDocument; d.open();
+  d.write(`<!doctype html><meta charset="utf-8"><title>Table QR codes</title><style>@page{margin:12mm}body{font-family:system-ui,sans-serif;margin:0}.card{display:inline-block;width:88mm;margin:4mm;padding:6mm;border:1px dashed #999;text-align:center;break-inside:avoid;vertical-align:top}h1{font-size:16pt;margin:0}h2{font-size:22pt;margin:2mm 0 4mm}.q svg{width:60mm;height:60mm}p{margin:3mm 0 0;font-size:11pt;color:#444}</style>${body}`);
+  d.close();
+  const cleanup = () => f.remove();
+  f.contentWindow.onafterprint = cleanup; setTimeout(cleanup, 5 * 60 * 1000);
+  setTimeout(() => { f.contentWindow.focus(); f.contentWindow.print(); }, 300);
+}
+$('tbPrint').onclick = async () => {
+  say($('tbMsg'), 'Preparing the QR codes…');
+  try {
+    const rows = (await json('tables?qr=1')).tables.filter((t) => t.is_active).sort(byLabel);
+    if (!rows.length) return say($('tbMsg'), 'There are no tables switched on. Add a table first.', false);
+    say($('tbMsg'), '');
+    printCards(rows.map((t) => ({ label: t.label, svg: t.qr_svg })));
+  } catch (e) { say($('tbMsg'), e.message, false); }
 };
 
 start();
