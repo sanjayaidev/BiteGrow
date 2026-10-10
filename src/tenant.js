@@ -65,6 +65,11 @@ function shapeTenant(row) {
       deliveryFee: Number(s.delivery_fee || 0),
       orderTypes: s.order_types || ['dine_in', 'pickup', 'delivery'],
       features: s.features || {},
+      // Opening hours and the manual "not taking orders" switch (see src/lib/hours.js).
+      openHours: s.open_hours && typeof s.open_hours === 'object' ? s.open_hours : {},
+      openNote: s.open_note || '',
+      pauseOrders: !!s.pause_orders,
+      pauseUntil: s.pause_until || null,
     },
     // Only the public-safe parts of the integrations row (never tokens or keys).
     integrations: {
