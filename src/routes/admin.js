@@ -18,6 +18,7 @@ const multer = require('multer');
 const { mask } = require('../lib/secrets');
 const { templateCsv, planImport, loadExisting, applyImport, exportCsv } = require('../lib/menuImport');
 const { defaultsFor, CHANNELS } = require('../lib/assistant');
+const { validateSchedule } = require('../lib/hours');
 const { isConfigured: aiConfigured } = require('../lib/dashscope');
 const { createMediaRouter } = require('./media');
 const { createMenuAdminRouter } = require('./menuAdmin');
@@ -88,6 +89,8 @@ function createAdminRouter({ supabase, auth, secretBox, assistant, onTenantChang
     brand_name: s.brand_name || '', page_title: s.page_title || '', phone: s.phone || '', phone2: s.phone2 || '',
     address: s.address || '', map_url: s.map_url || '', whatsapp_number: s.whatsapp_number || '',
     delivery_fee: Number(s.delivery_fee || 0), order_types: s.order_types || ORDER_TYPES, features: s.features || {},
+    open_hours: s.open_hours && typeof s.open_hours === 'object' ? s.open_hours : {},
+    open_note: s.open_note || '', pause_orders: !!s.pause_orders, pause_until: s.pause_until || null,
   });
 
   router.get('/settings', asyncHandler(async (req, res) => res.json(settingsView(await readSettings(req.tenant.id)))));
@@ -151,6 +154,39 @@ function createAdminRouter({ supabase, auth, secretBox, assistant, onTenantChang
           if (!dish) return res.status(400).json({ error: 'Choose a dish from your menu' });
           u.features.topPickItemId = id;
         }
+      }
+    }
+    // ---- opening hours and the "not taking orders" switch (see src/lib/hours.js) ----
+    if (b.open_hours !== undefined) {
+      const v = validateSchedule(b.open_hours);
+      if (v.error) return res.status(400).json({ error: v.error });
+      u.open_hours = v.hours;
+    }
+    if (b.open_note !== undefined) {
+      const v = str(b.open_note, 200);
+      if (v === undefined) return res.status(400).json({ error: 'The note under your hours must be text' });
+      u.open_note = v;
+    }
+    if (b.pause_orders !== undefined) {
+      if (typeof b.pause_orders !== 'boolean') return res.status(400).json({ error: 'pause_orders must be true or false' });
+      u.pause_orders = b.pause_orders;
+      if (!b.pause_orders) u.pause_until = null;                     // switching back on clears any timed pause
+      else if (b.pause_until !== undefined) {                        // optional "back at ..." moment
+        if (b.pause_until === null || b.pause_until === '') u.pause_until = null;
+        else {
+          const d = new Date(b.pause_until);
+          if (isNaN(d)) return res.status(400).json({ error: 'The pause-until time must be a valid date and time' });
+          if (d.getTime() > Date.now() + 365 * 86400_000) return res.status(400).json({ error: 'The pause-until time is too far in the future' });
+          u.pause_until = d.toISOString();
+        }
+      }
+    } else if (b.pause_until !== undefined) {
+      // Changing only the resume moment: it is stored as given, but it has no effect while the switch is off.
+      if (b.pause_until === null || b.pause_until === '') u.pause_until = null;
+      else {
+        const d = new Date(b.pause_until);
+        if (isNaN(d)) return res.status(400).json({ error: 'The pause-until time must be a valid date and time' });
+        u.pause_until = d.toISOString();
       }
     }
     if (!Object.keys(u).length) return res.status(400).json({ error: 'No settings supplied' });

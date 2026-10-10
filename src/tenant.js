@@ -10,7 +10,7 @@
 // The host comes from req.hostname, which Express fills from X-Forwarded-Host
 // only when "trust proxy" is set, so a client cannot spoof it by itself.
 
-const BASE_SELECT = '*, settings:bg_tenant_settings(*)';
+const BASE_SELECT = '*, timezone, settings:bg_tenant_settings(*)';
 const INTEGRATION_COLS = 'meta_pixel_id, ai_enabled, ai_greeting, ai_channels';
 const SELECT = `${BASE_SELECT}, integrations:bg_tenant_integrations(${INTEGRATION_COLS})`;
 const TENANT_SELECT = SELECT;
@@ -81,9 +81,14 @@ function shapeTenant(row) {
 }
 
 // What the browser is allowed to know. Replaces the old config.json / window.CONFIG.
-function publicConfig(t) {
+// The opening-hours schedule travels with it (wall-clock times + the restaurant's own timezone),
+// so the storefront can show "Open until 22:00" and stop checkout while the kitchen is closed.
+function publicConfig(t, now = new Date()) {
   const s = t.settings;
+  const hours = require('./lib/hours');
+  const status = hours.isOpen({ ...s, timezone: t.timezone }, now);
   return {
+    openStatus: { open: status.open, reason: status.reason || null, message: status.message },
     tenant: t.slug,
     brand: s.brandName,
     pageTitle: s.pageTitle,
@@ -101,6 +106,10 @@ function publicConfig(t) {
     deliveryFee: s.deliveryFee,
     orderTypes: s.orderTypes,
     features: s.features,
+    // Opening hours for the footer and the "ready by" picker. Wall-clock strings in the restaurant's own timezone.
+    openHours: s.openHours,
+    openNote: s.openNote,
+    timezone: t.timezone || 'UTC',
     assistant: !!(t.integrations && t.integrations.assistantOn),
     assistantGreeting: (t.integrations && t.integrations.assistantGreeting) || '',
   };
