@@ -90,12 +90,14 @@ function inWindow(win, hm) {
   return win.spansMidnight ? (hm >= win.oMin || hm < win.cMin) : (hm >= win.oMin && hm < win.cMin);
 }
 
-// True when the owner never entered a schedule at all (no day keys, no default).
-// Legacy tenants that predate the hours feature must keep accepting orders — only an
-// explicit schedule (or the pause switch) can close them.
+// True when the owner configured a schedule at all. Legacy tenants that predate the hours
+// feature (open_hours missing or an empty object {}) must keep accepting orders — only an
+// explicit schedule can close them. A saved schedule counts even when every day is an empty
+// list: that is the owner deliberately closing every day, not a missing schedule.
 function hasSchedule(schedule) {
-  const days = schedule.days || {};
-  return Object.keys(days).some((k) => Array.isArray(days[k]) && days[k].length > 0);
+  const days = schedule.days;
+  if (!days || typeof days !== 'object') return false;
+  return Object.keys(days).some((k) => k === 'default' || DAYS.includes(k));
 }
 
 // What the schedule says about one moment.
@@ -142,10 +144,18 @@ function statusAt(schedule, local) {
   return { open: false, reason: 'closed_day', message: `We are closed${note}.` };
 }
 
-// Convenience: schedule row + instant -> status.
+// Convenience: schedule row + instant -> status. The instant may also be given as the second
+// argument of an object-style call ({ settings, timezone }, now) — both shapes are used.
 function isOpen(settingsRow, instant = new Date()) {
-  const sch = scheduleFrom(settingsRow);
-  return statusAt(sch, localNow(sch.timezone, instant));
+  let raw = settingsRow;
+  let at = instant;
+  if (settingsRow && typeof settingsRow === 'object' && !(settingsRow instanceof Date)
+    && !Array.isArray(settingsRow) && ('settings' in settingsRow || 'timezone' in settingsRow)) {
+    raw = settingsRow.settings;                 // camelCase fields ride along inside settings too;
+    at = settingsRow.now || instant;            // scheduleFrom reads them as a last resort
+  }
+  const sch = scheduleFrom(raw);
+  return statusAt(sch, localNow(sch.timezone, at));
 }
 
 // Human lines for the storefront footer, the assistant prompt and the admin preview.

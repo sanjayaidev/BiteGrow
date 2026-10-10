@@ -17,7 +17,7 @@ const express = require('express');
 const rateLimit = require('express-rate-limit');
 const { pick } = require('../render');
 const { toCents, fromCents, normalizeLines, fetchAvailableItems } = require('../lib/orderMath');
-const { isOpen, statusAt, scheduleFrom, windowsFor, localMidnightMs, localNow } = require('../lib/hours');
+const { isOpen, statusAt, scheduleFrom, hasSchedule, windowsFor, localMidnightMs, localNow } = require('../lib/hours');
 
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const clean = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
@@ -71,6 +71,16 @@ function hoursSource(tenant) {
   };
 }
 
+// The status that decides whether an ASAP order can be taken right now. A restaurant with no
+// schedule at all is open (legacy tenants predate the hours feature); once the owner saves a
+// schedule — even one that closes every day — the schedule rules.
+function asapStatus(tenant, instant = new Date()) {
+  const sch = scheduleFrom(hoursSource(tenant));
+  const st = statusAt(sch, localNow(sch.timezone, instant));
+  if (!hasSchedule(sch)) return { open: true, reason: 'no_schedule', message: 'Open now' };
+  return st;
+}
+
 // Scheduled orders: "ready by 19:30". The customer picks a local wall-clock time in the
 // restaurant's timezone; we store the real instant plus what they typed. A scheduled order may
 // arrive while the kitchen is shut (order tonight for tomorrow lunch), so it skips the open check
@@ -83,6 +93,7 @@ function parseReadyAt(tenant, raw) {
   if (!Number.isFinite(d.getTime())) return { error: 'That ready-by time does not look right' };
 
   const sch = scheduleFrom(hoursSource(tenant));
+  if (hasSchedule(sch) && sch.paused) return { error: 'We are not taking orders right now' };
   const nowMs = Date.now();
   const minLead = 15;                                    // kitchen needs a little prep time
   if (d.getTime() < nowMs + minLead * 60_000) {
@@ -138,7 +149,7 @@ function createOrdersRouter({ supabase, auth, createLimit = 20, lookupLimit = 60
     // the kitchen is not taking ASAP orders. A scheduled "ready by" order is allowed only
     // when the restaurant itself is open right now (order tonight for tomorrow lunch — but
     // never through a manual pause, and never from a page that has been open since closing).
-    const st = isOpen(hoursSource(tenant));
+    const st = asapStatus(tenant);
     if (!st.open) return res.status(409).json({ error: st.message, open_status: st });
     const ready = parseReadyAt(tenant, b.ready_at);
     if (ready.error) return res.status(400).json({ error: ready.error });

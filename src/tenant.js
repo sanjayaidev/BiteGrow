@@ -66,7 +66,12 @@ function shapeTenant(row) {
       orderTypes: s.order_types || ['dine_in', 'pickup', 'delivery'],
       features: s.features || {},
       // Opening hours and the manual "not taking orders" switch (see src/lib/hours.js).
-      openHours: s.open_hours && typeof s.open_hours === 'object' ? s.open_hours : {},
+      // A JSON string straight from a text column is parsed; '' / null count as "no schedule".
+      openHours: (() => {
+        let oh = s.open_hours;
+        if (typeof oh === 'string') { try { oh = JSON.parse(oh); } catch (e) { oh = null; } }
+        return oh && typeof oh === 'object' ? oh : {};
+      })(),
       openNote: s.open_note || '',
       pauseOrders: !!s.pause_orders,
       pauseUntil: s.pause_until || null,
