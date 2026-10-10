@@ -86,10 +86,24 @@ function shapeTenant(row) {
 function publicConfig(t, now = new Date()) {
   const s = t.settings;
   const hours = require('./lib/hours');
-  const status = hours.isOpen({ ...s, timezone: t.timezone }, now);
+  // The library reads the raw database column names (open_hours / open_note / pause_orders /
+  // pause_until), while shapeTenant hands us camelCase fields — translate before asking for status.
+  const raw = {
+    open_hours: s.openHours, open_note: s.openNote,
+    pause_orders: s.pauseOrders, pause_until: s.pauseUntil,
+    timezone: t.timezone,
+  };
+  const status = hours.isOpen(raw, now);
+  // The schedule the storefront prints in its footer: every weekday present (missing days read as
+  // closed), falling back to the "default" row — the same shape formatLines uses server-side.
+  const dayRows = raw.open_hours && typeof raw.open_hours === 'object' ? raw.open_hours : {};
+  const openHours = hours.DAYS.reduce((acc, d) => {
+    acc[d] = Array.isArray(dayRows[d]) ? dayRows[d] : (Array.isArray(dayRows.default) ? dayRows.default : []);
+    return acc;
+  }, {});
   return {
     openStatus: { open: status.open, reason: status.reason || null, message: status.message },
-    canSchedule: !!status.open,                                  // scheduling is a workaround for "closed now", so it needs the kitchen open
+    canSchedule: true,        // a "ready by" order is exactly how a closed restaurant still takes orders
     tenant: t.slug,
     brand: s.brandName,
     pageTitle: s.pageTitle,
@@ -108,7 +122,7 @@ function publicConfig(t, now = new Date()) {
     orderTypes: s.orderTypes,
     features: s.features,
     // Opening hours for the footer and the "ready by" picker. Wall-clock strings in the restaurant's own timezone.
-    openHours: s.openHours,
+    openHours,
     openNote: s.openNote,
     timezone: t.timezone || 'UTC',
     assistant: !!(t.integrations && t.integrations.assistantOn),

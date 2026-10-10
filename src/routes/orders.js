@@ -17,7 +17,7 @@ const express = require('express');
 const rateLimit = require('express-rate-limit');
 const { pick } = require('../render');
 const { toCents, fromCents, normalizeLines, fetchAvailableItems } = require('../lib/orderMath');
-const { isOpen, statusAt, scheduleFrom, windowsFor, localMidnightMs } = require('../lib/hours');
+const { isOpen, statusAt, scheduleFrom, windowsFor, localMidnightMs, localNow } = require('../lib/hours');
 
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const clean = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
@@ -58,6 +58,19 @@ function whatsappUrl(tenant, order, details) {
   return `https://wa.me/${number}?text=${encodeURIComponent(lines.join('\n'))}`;
 }
 
+// Either shape works: the raw database columns (open_hours / pause_orders …, as used by the admin
+// routes and tests) or the camelCase fields from shapeTenant. scheduleFrom reads the raw names.
+function hoursSource(tenant) {
+  const s = (tenant && tenant.settings) || {};
+  return {
+    open_hours: s.open_hours !== undefined ? s.open_hours : s.openHours,
+    open_note: s.open_note !== undefined ? s.open_note : s.openNote,
+    pause_orders: s.pause_orders !== undefined ? s.pause_orders : s.pauseOrders,
+    pause_until: s.pause_until !== undefined ? s.pause_until : s.pauseUntil,
+    timezone: tenant.timezone,
+  };
+}
+
 // Scheduled orders: "ready by 19:30". The customer picks a local wall-clock time in the
 // restaurant's timezone; we store the real instant plus what they typed. A scheduled order may
 // arrive while the kitchen is shut (order tonight for tomorrow lunch), so it skips the open check
@@ -69,7 +82,7 @@ function parseReadyAt(tenant, raw) {
   const d = new Date(v);
   if (!Number.isFinite(d.getTime())) return { error: 'That ready-by time does not look right' };
 
-  const sch = scheduleFrom({ ...tenant.settings, timezone: tenant.timezone });
+  const sch = scheduleFrom(hoursSource(tenant));
   const nowMs = Date.now();
   const minLead = 15;                                    // kitchen needs a little prep time
   if (d.getTime() < nowMs + minLead * 60_000) {
@@ -125,7 +138,7 @@ function createOrdersRouter({ supabase, auth, createLimit = 20, lookupLimit = 60
     // the kitchen is not taking ASAP orders. A scheduled "ready by" order is allowed only
     // when the restaurant itself is open right now (order tonight for tomorrow lunch — but
     // never through a manual pause, and never from a page that has been open since closing).
-    const st = isOpen({ ...tenant.settings, timezone: tenant.timezone });
+    const st = isOpen(hoursSource(tenant));
     if (!st.open) return res.status(409).json({ error: st.message, open_status: st });
     const ready = parseReadyAt(tenant, b.ready_at);
     if (ready.error) return res.status(400).json({ error: ready.error });
