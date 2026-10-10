@@ -31,7 +31,17 @@ function storefrontUrl(tenant) {
 }
 
 // cfg may be omitted (or null) — every setting below then falls back to its default.
+// An object-style call ({ tenant, menuText, now }) is also accepted, for tests and callers
+// that prefer named fields; `now` lets a caller pin the wall-clock used for the status line.
 function buildSystemPrompt(tenant, cfg, menuText) {
+  let now = new Date();
+  if (tenant && typeof tenant === 'object' && !tenant.settings && tenant.tenant) {
+    const o = tenant;
+    tenant = o.tenant;
+    menuText = o.menuText !== undefined ? o.menuText : menuText;
+    cfg = o.cfg || cfg || {};
+    if (o.now) now = o.now;
+  }
   cfg = cfg || {};
   const s = tenant.settings;
   const lines = [
@@ -50,7 +60,7 @@ function buildSystemPrompt(tenant, cfg, menuText) {
   // The owner's published schedule, so the bot can answer "are you open now?" without inventing hours.
   const { scheduleFrom, statusAt, localNow, formatLines } = require('./hours');
   const sch = scheduleFrom({ ...s, timezone: tenant.timezone });
-  const nowLocal = localNow(sch.timezone);
+  const nowLocal = localNow(sch.timezone, now);
   const st = statusAt(sch, nowLocal);
   lines.push(`Opening hours (${sch.timezone}, right now it is ${String(Math.floor(nowLocal.hm / 60)).padStart(2, '0')}:${String(nowLocal.hm % 60).padStart(2, '0')} there):`);
   lines.push(...formatLines(sch, nowLocal));
