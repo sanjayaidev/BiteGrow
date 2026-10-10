@@ -24,6 +24,7 @@ const { createMediaRouter } = require('./media');
 const { createMenuAdminRouter } = require('./menuAdmin');
 const { createTablesRouter } = require('./tablesAdmin');
 const { createStaffRouter } = require('./staffAdmin');
+const { createReportsRouter } = require('./reportsAdmin');
 
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const str = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : undefined);
@@ -49,6 +50,9 @@ function createAdminRouter({ supabase, auth, secretBox, assistant, onTenantChang
 
   // ---- homepage videos ---------------------------------------------------
   router.use('/media', createMediaRouter({ supabase, onMediaChanged: onMenuChanged, ...mediaOptions }));
+
+  // ---- reports, daily sales and kitchen tickets (/reports, /orders/:id/ticket)
+  router.use('/', createReportsRouter({ supabase }));
 
   // ---- menu CSV ----------------------------------------------------------
   const sendCsv = (res, name, body) => res

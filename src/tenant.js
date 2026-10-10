@@ -89,6 +89,7 @@ function publicConfig(t, now = new Date()) {
   const status = hours.isOpen({ ...s, timezone: t.timezone }, now);
   return {
     openStatus: { open: status.open, reason: status.reason || null, message: status.message },
+    canSchedule: !!status.open,                                  // scheduling is a workaround for "closed now", so it needs the kitchen open
     tenant: t.slug,
     brand: s.brandName,
     pageTitle: s.pageTitle,
