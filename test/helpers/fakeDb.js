@@ -18,7 +18,14 @@ function makeDb(seed = {}) {
 
   function from(table) {
     const q = { op: 'select', filters: [], payload: null, onConflict: 'id', ord: null, lim: null, one: false, strict: false };
-    const match = (r) => q.filters.every(([k, v, kind]) => (kind === 'in' ? v.includes(r[k]) : r[k] === v));
+    const match = (r) => q.filters.every(([k, v, kind]) => {
+      if (kind === 'in') return v.includes(r[k]);
+      if (kind === 'gte') return r[k] >= v;
+      if (kind === 'lte') return r[k] <= v;
+      if (kind === 'lt') return r[k] < v;
+      if (kind === 'gt') return r[k] > v;
+      return r[k] === v;
+    });
 
     const run = () => {
       const failKey = `${table}:${q.op}`;
@@ -72,6 +79,10 @@ function makeDb(seed = {}) {
       delete() { q.op = 'delete'; return b; },
       eq(k, v) { q.filters.push([k, v]); return b; },
       in(k, v) { q.filters.push([k, v, 'in']); return b; },
+      gte(k, v) { q.filters.push([k, v, 'gte']); return b; },
+      lte(k, v) { q.filters.push([k, v, 'lte']); return b; },
+      lt(k, v) { q.filters.push([k, v, 'lt']); return b; },
+      gt(k, v) { q.filters.push([k, v, 'gt']); return b; },
       match(obj) { Object.entries(obj).forEach(([k, v]) => q.filters.push([k, v])); return b; },
       order(col, o) { q.ord = { col, asc: !(o && o.ascending === false) }; return b; },
       limit(n) { q.lim = n; return b; },

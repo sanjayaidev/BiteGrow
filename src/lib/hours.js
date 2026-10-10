@@ -90,11 +90,20 @@ function inWindow(win, hm) {
   return win.spansMidnight ? (hm >= win.oMin || hm < win.cMin) : (hm >= win.oMin && hm < win.cMin);
 }
 
+// True when the owner never entered a schedule at all (no day keys, no default).
+// Legacy tenants that predate the hours feature must keep accepting orders — only an
+// explicit schedule (or the pause switch) can close them.
+function hasSchedule(schedule) {
+  const days = schedule.days || {};
+  return Object.keys(days).some((k) => Array.isArray(days[k]) && days[k].length > 0);
+}
+
 // What the schedule says about one moment.
 //   { open, reason?, closesAt?, opensAt?, message }
 // reason: 'paused' | 'closed_day' | 'before_open' | 'after_close'
 function statusAt(schedule, local) {
   const note = schedule.note ? ` (${schedule.note})` : '';
+  if (!hasSchedule(schedule)) return { open: true, reason: 'no_schedule', message: 'Open now' };
   if (schedule.paused) {
     const until = schedule.until ? new Date(schedule.until) : null;
     if (until && !isNaN(until) && until.getTime() <= local.ms) {
@@ -186,4 +195,4 @@ function normalizeSchedule(days) {
   return out;
 }
 
-module.exports = { DAYS, DAY_LABEL, WEEK_ORDER, TIME_RE, minutesOf, hhmm, scheduleFrom, localNow, localMidnightMs, windowsFor, statusAt, isOpen, formatLines, validateSchedule, normalizeSchedule };
+module.exports = { DAYS, DAY_LABEL, WEEK_ORDER, TIME_RE, minutesOf, hhmm, scheduleFrom, localNow, localMidnightMs, windowsFor, statusAt, isOpen, hasSchedule, formatLines, validateSchedule, normalizeSchedule };

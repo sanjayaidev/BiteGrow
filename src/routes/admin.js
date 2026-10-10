@@ -18,7 +18,7 @@ const multer = require('multer');
 const { mask } = require('../lib/secrets');
 const { templateCsv, planImport, loadExisting, applyImport, exportCsv } = require('../lib/menuImport');
 const { defaultsFor, CHANNELS } = require('../lib/assistant');
-const { validateSchedule } = require('../lib/hours');
+const { validateSchedule, isOpen } = require('../lib/hours');
 const { isConfigured: aiConfigured } = require('../lib/dashscope');
 const { createMediaRouter } = require('./media');
 const { createMenuAdminRouter } = require('./menuAdmin');
@@ -89,6 +89,92 @@ function createAdminRouter({ supabase, auth, secretBox, assistant, onTenantChang
     if (error) throw error;
     return data || {};
   };
+
+  // ---- platform analytics: performance per restaurant (super admin only) --
+  // GET /api/admin/analytics?from=YYYY-MM-DD&to=YYYY-MM-DD&type=&status=
+  //   -> { range, restaurants: [{ id, slug, name, currency, orders, revenue, cancelled,
+  //        avg_order, by_type, open_now }], totals }
+  // The whole tenant table is small enough to pull in one go; orders are capped like /reports.
+  router.get('/analytics', asyncHandler(async (req, res) => {
+    if (req.staffRole !== 'super') return res.status(403).json({ error: 'Platform analytics require a super admin account' });
+
+    const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+    const DAY_MS = 86_400_000;
+    const ORDER_TYPES = ['dine_in', 'pickup', 'delivery'];
+    const STATUSES = ['pending', 'confirmed', 'preparing', 'ready', 'completed', 'cancelled'];
+    const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
+
+    // Default window: the last 30 days (UTC calendar — this view spans many timezones).
+    const today = new Date().toISOString().slice(0, 10);
+    const to = typeof req.query.to === 'string' && DATE_RE.test(req.query.to) ? req.query.to : today;
+    const from = typeof req.query.from === 'string' && DATE_RE.test(req.query.from) ? req.query.from
+      : new Date(Date.parse(to + 'T00:00:00Z') - 29 * DAY_MS).toISOString().slice(0, 10);
+    if (from > to) return res.status(400).json({ error: 'The start date must be on or before the end date' });
+    if (Date.parse(to) - Date.parse(from) > 366 * DAY_MS) return res.status(400).json({ error: 'Analytics cover at most 366 days at a time' });
+
+    const type = typeof req.query.type === 'string' ? req.query.type : '';
+    if (type && !ORDER_TYPES.includes(type)) return res.status(400).json({ error: 'Unknown order type' });
+    const status = typeof req.query.status === 'string' ? req.query.status : '';
+    if (status && !STATUSES.includes(status)) return res.status(400).json({ error: 'Unknown order status' });
+
+    const { data: tenants, error: tErr } = await supabase
+      .from('bg_tenants').select('id, slug, name, currency, status').order('name');
+    if (tErr) throw tErr;
+
+    let q = supabase.from('bg_orders').select('tenant_id, total, status, order_type')
+      .gte('created_at', `${from}T00:00:00.000Z`)
+      .lt('created_at', new Date(Date.parse(to) + DAY_MS).toISOString());
+    if (type) q = q.eq('order_type', type);
+    if (status) q = q.eq('status', status);
+    const { data: orders, error: oErr } = await q.limit(50000);
+    if (oErr) throw oErr;
+    const rows = orders || [];
+
+    const agg = new Map((tenants || []).map((t) => [t.id, {
+      id: t.id, slug: t.slug, name: t.name, currency: t.currency || '', active: t.status === 'active',
+      orders: 0, revenue: 0, cancelled: 0, by_type: { dine_in: 0, pickup: 0, delivery: 0 },
+    }]));
+    for (const o of rows) {
+      const a = agg.get(o.tenant_id);
+      if (!a) continue;                                     // orphan row (tenant deleted) — skip
+      a.orders++;
+      a.by_type[o.order_type] = (a.by_type[o.order_type] || 0) + 1;
+      if (o.status === 'cancelled') a.cancelled++;
+      else a.revenue = round2(a.revenue + Math.round(Number(o.total || 0) * 100) / 100);
+    }
+
+    // Live open/closed badge uses each restaurant's own schedule + timezone.
+    const ids = [...agg.keys()];
+    let settingsById = new Map();
+    if (ids.length) {
+      for (let i = 0; i < ids.length; i += 500) {
+        const { data: ss, error: sErr } = await supabase.from('bg_tenant_settings')
+          .select('tenant_id, open_hours, pause_orders, pause_until').in('tenant_id', ids.slice(i, i + 500));
+        if (sErr) throw sErr;
+        for (const s of ss || []) settingsById.set(s.tenant_id, s);
+      }
+      const { data: tzRows } = await supabase.from('bg_tenants').select('id, timezone').in('id', ids);
+      for (const t of tzRows || []) {
+        const s = settingsById.get(t.id) || {};
+        settingsById.set(t.id, { ...s, timezone: t.timezone });
+      }
+    }
+
+    const restaurants = [...agg.values()].map((a) => {
+      const st = isOpen({ ...(settingsById.get(a.id) || {}), timezone: (settingsById.get(a.id) || {}).timezone });
+      return { ...a, open_now: st.open, avg_order: a.orders - a.cancelled ? round2(a.revenue / (a.orders - a.cancelled)) : 0 };
+    }).sort((x, y) => y.revenue - x.revenue || y.orders - x.orders);
+
+    const totals = restaurants.reduce((acc, r) => ({
+      restaurants: acc.restaurants + 1,
+      orders: acc.orders + r.orders,
+      revenue: round2(acc.revenue + r.revenue),
+      cancelled: acc.cancelled + r.cancelled,
+    }), { restaurants: 0, orders: 0, revenue: 0, cancelled: 0 });
+
+    res.json({ range: { from, to, type: type || null, status: status || null }, truncated: rows.length >= 50000, totals, restaurants });
+  }));
+
   const settingsView = (s) => ({
     brand_name: s.brand_name || '', page_title: s.page_title || '', phone: s.phone || '', phone2: s.phone2 || '',
     address: s.address || '', map_url: s.map_url || '', whatsapp_number: s.whatsapp_number || '',
