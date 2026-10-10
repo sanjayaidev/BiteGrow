@@ -147,6 +147,12 @@ function swap(html, anchor, replacement) {
   return html.replace(anchor, () => replacement);
 }
 
+// Same as swap(), but the anchor is a pattern, so the template's placeholder content can change freely.
+function swapRe(html, re, replacement) {
+  if (!re.test(html)) throw new Error(`index.html is missing expected markup: ${re}`);
+  return html.replace(re, () => replacement);
+}
+
 function createStorefront({
   supabase,
   templatePath = path.join(__dirname, '..', 'public', 'index.html'),
@@ -201,7 +207,7 @@ function createStorefront({
     html = swap(html, '<html lang="en">', `<html lang="${esc(lang)}">`);
     html = swap(html, '<title>Red House — Demo</title>', `<title>${esc(s.pageTitle)}</title>`);
     // Logo: full width across the top. A restaurant without a logo gets its name in the same place.
-    html = swap(html, '<header class="logo-banner"><span class="brand">RED HOUSE</span></header>',
+    html = swapRe(html, /<header class="logo-banner">[\s\S]*?<\/header>/,
       s.logoUrl
         ? `<header class="logo-banner"><img class="logo" src="${esc(s.logoUrl)}" alt="${esc(s.brandName)}" fetchpriority="high" decoding="async"></header>`
         : `<header class="logo-banner"><span class="brand">${esc(s.brandName)}</span></header>`);
