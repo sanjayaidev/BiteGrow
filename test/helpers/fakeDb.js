@@ -94,8 +94,8 @@ function makeDb(seed = {}) {
   }
 
   let n = 0;
-  const addUser = (email) => {
-    const user = { id: 'u' + (++n), email, user_metadata: {} };
+  const addUser = (email, role) => {
+    const user = { id: 'u' + (++n), email, user_metadata: role ? { app_metadata: { roles: [role] } } : {} };
     users.set('tok-' + user.id, user);
     return user;
   };

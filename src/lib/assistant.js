@@ -30,7 +30,9 @@ function storefrontUrl(tenant) {
   return base ? `https://${tenant.slug}.${base}` : '';
 }
 
+// cfg may be omitted (or null) — every setting below then falls back to its default.
 function buildSystemPrompt(tenant, cfg, menuText) {
+  cfg = cfg || {};
   const s = tenant.settings;
   const lines = [
     `You are the ordering assistant for ${s.brandName}, a restaurant. You chat with customers on its website and messaging apps.`,

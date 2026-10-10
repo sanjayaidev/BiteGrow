@@ -8,6 +8,7 @@ const { TENANT_A } = require('./helpers/httpApp');
 const H = require('../src/lib/hours');
 
 const WEEK = { mon: [{ open: '11:30', close: '22:00' }], tue: [{ open: '11:30', close: '22:00' }], wed: [], thu: [], fri: [], sat: [], sun: [] };
+const WEEK_ALL = Object.fromEntries(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].map((d) => [d, [{ open: '00:00', close: '23:59' }]]));
 
 // ---------------------------------------------------------------- hours library
 test('hours: a restaurant with no schedule stays open (legacy behaviour)', () => {
@@ -102,7 +103,7 @@ function ordersSetup(settings, timezone) {
   app.use((req, res, next) => { req.tenant = T; next(); });
   return { db, call: null, app };
 }
-const orderBody = { order_type: 'pickup', customer_name: 'Ash', customer_phone: '+917504704502', items: [{ item_id: 1, quantity: 1 }] };
+const orderBody = { order_type: 'pickup', customer_name: 'Ash', customer_phone: '+917504704502', items: [{ menu_item_id: 1, quantity: 1 }] };
 
 test('orders: rejected while paused, with the pause message', async () => {
   const { app, db } = ordersSetup({ pause_orders: true, open_hours: WEEK }, 'UTC');
@@ -145,6 +146,23 @@ test('orders: a restaurant without any schedule still accepts orders', async () 
     assert.equal(r.status, 201);
     assert.equal(r.body.ready_at, null);
     assert.equal(db.rowsOf('bg_orders').length, 1);
+  });
+});
+
+test('orders: a scheduled "ready by" order stores the instant and the lead time', async () => {
+  const { app, db } = ordersSetup({ open_hours: WEEK_ALL }, 'UTC');
+  await withServer(app, async (call) => {
+    const soon = new Date(Date.now() + 5 * 60_000).toISOString();
+    const bad = await call('POST', '/api/orders', { body: { ...orderBody, ready_at: soon } });
+    assert.equal(bad.status, 400);                       // below the 15-minute lead
+    assert.equal(db.rowsOf('bg_orders').length, 0);
+    const later = new Date(Date.now() + 3 * 3600_000).toISOString();
+    const ok = await call('POST', '/api/orders', { body: { ...orderBody, ready_at: later } });
+    assert.equal(ok.status, 201);
+    assert.equal(ok.body.ready_at, new Date(later).toISOString());
+    const row = db.rowsOf('bg_orders')[0];
+    assert.equal(row.ready_at, new Date(later).toISOString());
+    assert.ok(Number(row.lead_minutes) >= 179);
   });
 });
 
@@ -289,7 +307,7 @@ test('analytics: per-restaurant performance, super admin only', async () => {
     const denied = await get('/api/admin/analytics', token);          // admin of one restaurant: not super
     assert.equal(denied.status, 403);
     const superUser = db.addUser('root@platform.test');
-    db.rowsOf('bg_tenant_members').push({ tenant_id: 'tenant-a', user_id: superUser.id, role: 'super' });
+    db.rowsOf('bg_profiles').push({ id: superUser.id, is_super_admin: true });
     const ok = await get('/api/admin/analytics', db.token(superUser));
     assert.equal(ok.status, 200);
     const j = await ok.json();
