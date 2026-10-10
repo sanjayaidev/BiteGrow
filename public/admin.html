@@ -24,6 +24,15 @@ input:focus-visible,textarea:focus-visible,select:focus-visible,button:focus-vis
 .check{display:flex;gap:8px;align-items:center;margin:8px 0;font-size:14px}.check input{width:auto}
 .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:14px}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}@media(max-width:560px){.grid{grid-template-columns:1fr}}
+.hrday{border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-top:8px}
+.hrday>b{font-size:13px}
+.hrrow{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:13px;color:var(--muted)}
+.hrrow input[type=time]{margin:0;width:auto}
+.hadd{padding:4px 10px;font-size:12px;margin-top:8px}
+.tbl{width:100%;border-collapse:collapse;margin-top:12px;font-size:13px}
+.tbl th,.tbl td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}
+.tbl tr:first-child th{border-top:1px solid var(--line)}
+@media print{body>*{visibility:hidden}#app,#app *{visibility:visible}#app{position:absolute;left:0;top:0;width:100%}nav,.head button,.row,.acts,#rpMsg{display:none!important}}
 button.primary{background:var(--gold);color:#1a1408;border:0;border-radius:8px;padding:9px 16px;font-weight:700;cursor:pointer}
 button.quiet{background:none;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:9px 16px;cursor:pointer}
 button:disabled{opacity:.5;cursor:default}
@@ -71,6 +80,7 @@ dialog::backdrop{background:rgba(0,0,0,.65)}dialog h2{margin-top:0}
 <header><h1 id="title">Restaurant admin</h1><span><a href="/">View site</a> · <button class="link" id="out">Sign out</button></span></header>
 <nav role="tablist" id="tabs">
   <button role="tab" data-t="orders" aria-selected="true">Orders</button>
+  <button role="tab" data-t="reports" aria-selected="false">Reports</button>
   <button role="tab" data-t="menu" aria-selected="false">Menu</button>
   <button role="tab" data-t="tables" aria-selected="false">Tables</button>
   <button role="tab" data-t="settings" aria-selected="false">Restaurant</button>
@@ -161,6 +171,46 @@ dialog::backdrop{background:rgba(0,0,0,.65)}dialog h2{margin-top:0}
   <div class="check"><input type="checkbox" id="o_delivery"><label for="o_delivery" style="margin:0">Delivery</label></div>
   <div class="check"><input type="checkbox" id="f_ar"><label for="f_ar" style="margin:0">Show 3D / AR viewer</label></div>
   <div class="row"><button class="primary" id="saveS">Save details</button></div><div class="msg" id="sMsg" role="status"></div>
+</section>
+<section>
+  <h2>Opening hours</h2>
+  <p>Customers can only place orders while you are open, unless they schedule a "ready by" time that falls inside your hours. Leave a day's boxes empty to close that day.</p>
+  <div id="hrs"></div>
+  <label for="h_note">Note shown next to your hours <small>(optional, e.g. "Last orders 30 minutes before close")</small></label>
+  <input id="h_note" type="text" maxlength="200">
+  <div class="check"><input type="checkbox" id="h_pause"><label for="h_pause" style="margin:0">Pause all orders right now <small>(holiday, busy, closed unexpectedly)</small></label></div>
+  <label for="h_pause_until">Resume at <small>(optional — orders start again by themselves after this time)</small></label>
+  <input id="h_pause_until" type="datetime-local">
+  <div class="row"><button class="primary" id="saveHrs">Save opening hours</button></div><div class="msg" id="hrsMsg" role="status"></div>
+</section>
+</div>
+
+<div data-p="reports" hidden>
+<section>
+  <div class="head"><h2>Reports</h2><button class="quiet" id="rpPrint" type="button">Print this report</button></div>
+  <p>Daily sales for this restaurant, counted in your own timezone. Filter by dates, order type or status.</p>
+  <div class="grid">
+    <div><label for="rp_from">From</label><input id="rp_from" type="date"></div>
+    <div><label for="rp_to">To</label><input id="rp_to" type="date"></div>
+    <div><label for="rp_type">Order type</label><select id="rp_type"><option value="">All types</option><option value="dine_in">Dine-in</option><option value="pickup">Pickup</option><option value="delivery">Delivery</option></select></div>
+    <div><label for="rp_status">Status</label><select id="rp_status"><option value="">Any status</option><option value="pending">New</option><option value="confirmed">Confirmed</option><option value="preparing">Preparing</option><option value="ready">Ready</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select></div>
+  </div>
+  <div class="row"><button class="primary" id="rpGo">Run report</button></div>
+  <div class="msg" id="rpMsg" role="status"></div>
+  <div id="rpOut"><p>Pick a date range and run the report.</p></div>
+</section>
+<section id="rpPerf" hidden>
+  <h2>All restaurants</h2>
+  <p>Performance per restaurant across the platform (super admin accounts only).</p>
+  <div class="grid">
+    <div><label for="pf_from">From</label><input id="pf_from" type="date"></div>
+    <div><label for="pf_to">To</label><input id="pf_to" type="date"></div>
+    <div><label for="pf_type">Order type</label><select id="pf_type"><option value="">All types</option><option value="dine_in">Dine-in</option><option value="pickup">Pickup</option><option value="delivery">Delivery</option></select></div>
+    <div><label for="pf_status">Status</label><select id="pf_status"><option value="">Any status</option><option value="pending">New</option><option value="confirmed">Confirmed</option><option value="preparing">Preparing</option><option value="ready">Ready</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select></div>
+  </div>
+  <div class="row"><button class="primary" id="pfGo">Compare restaurants</button></div>
+  <div class="msg" id="pfMsg" role="status"></div>
+  <div id="pfOut"></div>
 </section>
 </div>
 
@@ -295,7 +345,7 @@ async function start() {
   $('login').hidden = true; $('app').hidden = false;
   // Kitchen staff only work with orders; the settings, menu and integrations stay with owners and admins.
   document.querySelectorAll('#tabs button').forEach((b) => { b.hidden = (kitchenOnly && b.dataset.t !== 'orders') || (b.dataset.t === 'staff' && !isOwner); });
-  if (!kitchenOnly) { loadSettings(); loadIntegrations(); loadMedia(); loadMenu(); loadTables(); if (isOwner) loadStaff(); }
+  if (!kitchenOnly) { loadSettings(); loadIntegrations(); loadMedia(); loadMenu(); loadTables(); initReports(); if (isOwner) loadStaff(); }
   startOrders();
   const cfg = await fetch('/api/config').then((r) => r.json()).catch(() => ({})); if (cfg.brand) $('title').textContent = cfg.brand + ' admin';
 }
@@ -340,6 +390,8 @@ async function importCsv(dry) {
 }
 $('check').onclick = () => importCsv(true); $('imp').onclick = () => importCsv(false);
 
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
 // ---- restaurant settings
 const OT = ['dine_in', 'pickup', 'delivery'];
 async function loadSettings() {
@@ -350,8 +402,63 @@ async function loadSettings() {
     OT.forEach((t) => $('o_' + t).checked = s.order_types.includes(t));
     setWa(s.whatsapp_number, s.features.whatsappOrder !== false); $('f_ar').checked = !!s.features.ar3d;
     HM.f = s.features || {}; renderHome();
+    await loadHours();   // opening hours live in their own GET so they can refresh after save
   } catch (e) { say($('sMsg'), e.message, false); }
 }
+
+// ---- opening hours editor ---------------------------------------------------
+// open_hours is { mon: [{open:"11:30", close:"22:00"}], ..., sun: [] } plus an optional
+// "default" fallback week. Each row here edits one window of one day; empty rows mean closed.
+const HDAYS = [['mon', 'Monday'], ['tue', 'Tuesday'], ['wed', 'Wednesday'], ['thu', 'Thursday'], ['fri', 'Friday'], ['sat', 'Saturday'], ['sun', 'Sunday']];
+let HRS = { days: {} };
+const toLocalInput = (iso) => { const ms = Date.parse(iso); if (isNaN(ms)) return ''; const d = new Date(ms - new Date(ms).getTimezoneOffset() * 60000); return d.toISOString().slice(0, 16); };
+function windowsForDay(k) {
+  const w = Array.isArray(HRS.days[k]) ? HRS.days[k] : (Array.isArray(HRS.days.default) ? HRS.days.default : []);
+  return w.length ? w.map((x) => ({ open: x.open, close: x.close })) : [{ open: '', close: '' }];
+}
+function renderHours() {
+  $('hrs').innerHTML = HDAYS.map(([k, label]) => `
+    <div class="hrday"><b>${label}</b><div class="hrrows" data-d="${k}">${windowsForDay(k).map(rowHtml).join('')}</div>
+    <button type="button" class="quiet hadd" data-d="${k}">Add time</button></div>`).join('');
+}
+function rowHtml(w) {
+  return `<div class="hrrow"><input type="time" value="${esc(w.open || '')}" aria-label="Open"> <span>to</span> <input type="time" value="${esc(w.close || '')}" aria-label="Close"><button type="button" class="link hdel" aria-label="Remove this time">&times;</button></div>`;
+}
+$('hrs').addEventListener('click', (e) => {
+  const add = e.target.closest('.hadd');
+  if (add) { const box = $('hrs').querySelector(`.hrrows[data-d="${add.dataset.d}"]`); box.insertAdjacentHTML('beforeend', rowHtml({ open: '', close: '' })); return; }
+  const del = e.target.closest('.hdel');
+  if (del) { const row = del.closest('.hrrow'); const box = row.parentElement; if (box.children.length > 1) row.remove(); else { row.querySelectorAll('input').forEach((i) => { i.value = ''; }); } }
+});
+async function loadHours() {
+  try {
+    const s = await json('settings');
+    HRS.days = s.open_hours && typeof s.open_hours === 'object' ? s.open_hours : {};
+    renderHours();
+    $('h_note').value = s.open_note || '';
+    $('h_pause').checked = !!s.pause_orders;
+    $('h_pause_until').value = toLocalInput(s.pause_until);
+  } catch (e) { /* loadSettings already reported the failure */ }
+}
+$('saveHrs').onclick = async () => {
+  say($('hrsMsg'), 'Saving…');
+  const days = {};
+  for (const [k] of HDAYS) {
+    const wins = [];
+    $('hrs').querySelectorAll(`.hrrows[data-d="${k}"] .hrrow`).forEach((r) => {
+      const ins = r.querySelectorAll('input'); const open = ins[0].value, close = ins[1].value;
+      if (open && close) wins.push({ open, close });
+    });
+    days[k] = wins;
+  }
+  const pause = $('h_pause').checked;
+  const body = { open_hours: days, open_note: $('h_note').value, pause_orders: pause, pause_until: pause && $('h_pause_until').value ? new Date($('h_pause_until').value).toISOString() : null };
+  try {
+    const j = await json('settings', { method: 'PUT', json: body });
+    HRS.days = j.open_hours || {};
+    say($('hrsMsg'), 'Saved. The site shows the change on the next page load.', true);
+  } catch (e) { say($('hrsMsg'), e.message, false); }
+};
 $('saveS').onclick = async () => {
   say($('sMsg'), 'Saving…');
   try {
@@ -467,7 +574,6 @@ $('saveSp').onclick = async () => {
 
 // ---- Categories and dishes (per-item editing)
 const M = { cats: [], items: [], langs: ['en'], def: 'en', cur: '' };
-const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const nm = (map) => (map && (map[M.def] || Object.values(map)[0])) || '';
 const catName = (id) => { const c = M.cats.find((x) => x.id === id); return c ? nm(c.label) : '—'; };
 const price = (n) => M.cur + Number(n).toFixed(2);
@@ -631,12 +737,12 @@ function renderOrders(list) {
   const fresh = (o) => O.fresh.has(o.id);
   $('ords').innerHTML = list.length ? list.map((o) => `<div class="ord" data-id="${o.id}">
     <div class="top"><b>${esc(o.order_number)}</b><span>${fresh(o) ? '<span class="st new">New</span>' : ''}<span class="st ${esc(o.status)}">${esc(ORD_LABEL[o.status] || o.status)}</span><span class="st ${o.payment_status === 'paid' ? 'paid' : ''}">${esc(o.payment_status)}</span></span></div>
-    <div class="meta">${esc(TYPE_NAME[o.order_type] || o.order_type)}${o.table_label ? ' · table ' + esc(o.table_label) : ''} · ${esc(ordTime(o.created_at))} · ${esc(o.customer_name)}${o.customer_phone ? ' · <a href="tel:' + esc(String(o.customer_phone).replace(/[^\d+]/g, '')) + '">' + esc(o.customer_phone) + '</a>' : ''}</div>
+    <div class="meta">${esc(TYPE_NAME[o.order_type] || o.order_type)}${o.table_label ? ' · table ' + esc(o.table_label) : ''} · ${esc(ordTime(o.created_at))} · ${esc(o.customer_name)}${o.customer_phone ? ' · <a href="tel:' + esc(String(o.customer_phone).replace(/[^\d+]/g, '')) + '">' + esc(o.customer_phone) + '</a>' : ''}${o.ready_at ? ` · <b style="color:var(--gold)">READY BY ${esc(ordTime(o.ready_at))}</b>` : ''}</div>
     ${o.delivery_address ? `<div class="meta">Deliver to: ${esc(o.delivery_address)}</div>` : ''}
     <ul>${o.items.map((i) => `<li>${i.quantity} × ${esc(i.name)}</li>`).join('')}</ul>
     ${o.notes ? `<div class="note">Note: ${esc(o.notes)}</div>` : ''}
     <div class="meta">Total <b style="color:var(--text)">${esc(ordMoney(o, o.total))}</b>${o.delivery_fee ? ` (delivery ${esc(ordMoney(o, o.delivery_fee))})` : ''}</div>
-    <div class="acts">${o.next_statuses.filter((n) => n !== 'cancelled').map((n) => `<button class="primary" data-st="${n}">${esc(ORD_ACTION[n] || n)}</button>`).join('')}${o.next_payment.includes('paid') && o.status !== 'cancelled' ? '<button class="quiet" data-pay="paid">Mark paid</button>' : ''}${o.next_payment.includes('refunded') ? '<button class="quiet" data-pay="refunded">Mark refunded</button>' : ''}${o.next_statuses.includes('cancelled') ? '<button class="quiet" data-st="cancelled" style="color:var(--bad)">Cancel order</button>' : ''}</div>
+    <div class="acts">${o.next_statuses.filter((n) => n !== 'cancelled').map((n) => `<button class="primary" data-st="${n}">${esc(ORD_ACTION[n] || n)}</button>`).join('')}${o.next_payment.includes('paid') && o.status !== 'cancelled' ? '<button class="quiet" data-pay="paid">Mark paid</button>' : ''}${o.next_payment.includes('refunded') ? '<button class="quiet" data-pay="refunded">Mark refunded</button>' : ''}${o.next_statuses.includes('cancelled') ? '<button class="quiet" data-st="cancelled" style="color:var(--bad)">Cancel order</button>' : ''}<button class="quiet" data-ticket type="button">Print ticket</button></div>
   </div>`).join('') : `<p>${O.filter === 'active' ? 'No orders in progress.' : 'No orders to show.'}</p>`;
 }
 async function loadOrders(quiet) {
@@ -671,11 +777,84 @@ $('ordFilter').onclick = (e) => {
 $('ords').onclick = async (e) => {
   const b = e.target.closest('button'); if (!b) return;
   const card = b.closest('.ord'); const id = card && card.dataset.id; if (!id) return;
+  if (b.hasAttribute('data-ticket')) { printTicket(id); return; }
   const body = b.dataset.st ? { status: b.dataset.st } : b.dataset.pay ? { payment_status: b.dataset.pay } : null; if (!body) return;
   if (body.status === 'cancelled' && !confirm('Cancel this order?')) return;
   card.querySelectorAll('button').forEach((x) => { x.disabled = true; });
   try { await json('orders/' + encodeURIComponent(id), { method: 'PATCH', json: body }); await loadOrders(); say($('ordMsg'), 'Order updated.', true); }
   catch (err) { say($('ordMsg'), err.message, false); await loadOrders(); }
+};
+
+// ---- printable kitchen ticket
+async function printTicket(id) {
+  try {
+    const r = await api('orders/' + encodeURIComponent(id) + '/ticket');
+    if (!r.ok) throw new Error('Could not load the ticket');
+    const text = await r.text();
+    const w = window.open('', '_blank', 'width=380,height=640');
+    if (!w) { navigator.clipboard && navigator.clipboard.writeText(text); say($('ordMsg'), 'Popup blocked — the ticket was copied instead.', true); return; }
+    w.document.write('<pre style="font:13px/1.5 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap">' + text.replace(/[&<]/g, (c) => ({ '&': '&amp;', '<': '&lt;' }[c])) + '</pre>');
+    w.document.close(); w.focus(); w.print();
+  } catch (e) { say($('ordMsg'), e.message, false); }
+}
+
+// ---- reports and platform analytics ----------------------------------------
+// Daily sales for this restaurant (GET /api/admin/reports) plus, for super admins,
+// performance per restaurant across the platform (GET /api/admin/analytics).
+const RP = { days: null };
+const rpMoney = (n, cur) => (cur || M.cur || '') + Number(n || 0).toFixed(2);
+const rpDate = (ymd) => { const d = new Date(ymd + 'T00:00:00'); return isNaN(d) ? ymd : d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' }); };
+function initReports() {
+  const t = new Date().toISOString().slice(0, 10);
+  const f = new Date(Date.now() - 29 * 86400000).toISOString().slice(0, 10);
+  $('rp_from').value = f; $('rp_to').value = t; $('pf_from').value = f; $('pf_to').value = t;
+  $('rpGo').onclick = runReport;
+  $('rpPrint').onclick = () => window.print();
+  if (isOwner) api('analytics?from=' + f + '&to=' + t).then((r) => { $('rpPerf').hidden = r.status !== 200; }).catch(() => {});  // only super admins can use it
+}
+async function runReport() {
+  say($('rpMsg'), 'Working…');
+  const p = new URLSearchParams();
+  if ($('rp_from').value) p.set('from', $('rp_from').value);
+  if ($('rp_to').value) p.set('to', $('rp_to').value);
+  if ($('rp_type').value) p.set('type', $('rp_type').value);
+  if ($('rp_status').value) p.set('status', $('rp_status').value);
+  try {
+    const j = await json('reports?' + p.toString());
+    RP.days = j;
+    renderReport(j);
+    say($('rpMsg'), j.truncated ? 'This range holds very many orders — totals cover the first 20,000 only.' : '', !j.truncated || true);
+  } catch (e) { say($('rpMsg'), e.message, false); }
+}
+function renderReport(j) {
+  const cur = j.currency || '';
+  const rows = j.days.filter((d) => d.orders > 0);
+  const sum = (f) => j.days.reduce((a, d) => a + f(d), 0);
+  $('rpOut').innerHTML = `
+  <table class="tbl"><tr><th>Totals (${esc(j.range.from)} to ${esc(j.range.to)})</th><td style="text-align:right"><b>${j.totals.orders} orders · ${esc(rpMoney(j.totals.revenue, cur))}</b></td></tr>
+  <tr><th>Average order</th><td style="text-align:right">${esc(rpMoney(j.totals.avg_order, cur))}</td></tr>
+  <tr><th>Cancelled</th><td style="text-align:right">${j.totals.cancelled}</td></tr>
+  <tr><th>By type</th><td style="text-align:right">${['dine_in', 'pickup', 'delivery'].map((k) => `${TYPE_NAME[k]} ${j.totals.by_type[k] || 0}`).join(' · ')}</td></tr></table>
+  ${rows.length ? `<table class="tbl"><tr><th>Day</th><th>Orders</th><th>Sales</th><th>Avg</th><th>Dine-in / Pickup / Delivery</th><th>Channels</th></tr>
+  ${rows.map((d) => `<tr><td>${esc(rpDate(d.day))}</td><td>${d.orders}${d.cancelled ? ` <small>(${d.cancelled} cancelled)</small>` : ''}</td><td>${esc(rpMoney(d.revenue, cur))}</td><td>${esc(rpMoney(d.avg_order, cur))}</td><td>${d.by_type.dine_in || 0} / ${d.by_type.pickup || 0} / ${d.by_type.delivery || 0}</td><td>${esc(Object.entries(d.by_channel).map(([k, v]) => k + ':' + v).join(' '))}</td></tr>`).join('')}</table>` : '<p>No orders in this period.</p>'}
+  ${j.items.length ? `<h3>Top dishes</h3><table class="tbl"><tr><th>Dish</th><th>Quantity</th><th>Revenue</th></tr>${j.items.map((i) => `<tr><td>${esc(i.name)}</td><td>${i.quantity}</td><td>${esc(rpMoney(i.revenue, cur))}</td></tr>`).join('')}</table>` : ''}`;
+}
+$('pfGo').onclick = async () => {
+  say($('pfMsg'), 'Working…');
+  const p = new URLSearchParams();
+  if ($('pf_from').value) p.set('from', $('pf_from').value);
+  if ($('pf_to').value) p.set('to', $('pf_to').value);
+  if ($('pf_type').value) p.set('type', $('pf_type').value);
+  if ($('pf_status').value) p.set('status', $('pf_status').value);
+  try {
+    const j = await json('analytics?' + p.toString());
+    $('pfMsg').className = 'msg'; $('pfMsg').textContent = '';
+    $('pfOut').innerHTML = `
+    <table class="tbl"><tr><th>Platform (${esc(j.range.from)} to ${esc(j.range.to)})</th><td style="text-align:right"><b>${j.totals.restaurants} restaurants · ${j.totals.orders} orders · ${esc(rpMoney(j.totals.revenue))}</b></td></tr></table>
+    <table class="tbl"><tr><th>Restaurant</th><th>Open now</th><th>Orders</th><th>Revenue</th><th>Avg order</th><th>Cancelled</th><th>Dine-in / Pickup / Delivery</th></tr>
+    ${j.restaurants.map((r) => `<tr><td><b>${esc(r.name)}</b> <small>${esc(r.slug)}${r.active ? '' : ' · inactive'}</small></td><td>${r.open_now ? 'Open' : 'Closed'}</td><td>${r.orders}</td><td>${esc(rpMoney(r.revenue, r.currency))}</td><td>${esc(rpMoney(r.avg_order, r.currency))}</td><td>${r.cancelled}</td><td>${r.by_type.dine_in || 0} / ${r.by_type.pickup || 0} / ${r.by_type.delivery || 0}</td></tr>`).join('')}</table>
+    ${j.truncated ? '<p class="msg bad">Very many orders — totals cover the first 50,000 only.</p>' : ''}`;
+  } catch (e) { say($('pfMsg'), e.message, false); }
 };
 
 // ---- Dine-in tables and QR codes
