@@ -23,6 +23,7 @@ const { createOrdersRouter } = require('./src/routes/orders');
 const { createAdminRouter } = require('./src/routes/admin');
 const { createOrdersAdminRouter } = require('./src/routes/ordersAdmin');
 const { createMetaRouter } = require('./src/routes/meta');
+const { createPaymentWebhookRouter, MIN_SECRET_LENGTH: PAY_SECRET_MIN } = require('./src/routes/paymentWebhook');
 const { createAssistantRouter } = require('./src/routes/assistant');
 const { createPlatformRouter, MIN_KEY_LENGTH } = require('./src/routes/platform');
 const { createAssistant } = require('./src/lib/assistant');
@@ -64,6 +65,14 @@ app.get('/health', (req, res) => res.json({ status: 'ok' }));
 // Meta (WhatsApp / Instagram / Messenger) calls one URL for every restaurant and signs the raw body,
 // so this mounts before the tenant resolver and before any JSON parsing.
 app.use('/webhooks/meta', createMetaRouter({ supabase, assistant, secretBox }));
+
+// An outside payment server can mark an order paid or refunded here (signed with PAYMENT_WEBHOOK_SECRET). Same placement
+// as the Meta webhook: before the tenant resolver and JSON parsing, because the restaurant is named in the body and
+// the signature covers the raw bytes. Switched off unless the secret is set.
+if (process.env.PAYMENT_WEBHOOK_SECRET && process.env.PAYMENT_WEBHOOK_SECRET.length < PAY_SECRET_MIN) {
+  console.warn(`PAYMENT_WEBHOOK_SECRET is shorter than ${PAY_SECRET_MIN} characters, so the payment webhook is switched off.`);
+}
+app.use('/webhooks/payments', createPaymentWebhookRouter({ supabase }));
 
 // The admin page is a static shell; it signs in through /api/auth and every /api/admin call re-checks the role.
 app.get(['/admin', '/admin.html'], (req, res) => res.set('Cache-Control', 'no-store').sendFile(path.join(PUBLIC_DIR, 'admin.html')));

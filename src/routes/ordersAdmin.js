@@ -9,6 +9,7 @@
 
 const express = require('express');
 const { toInt } = require('../lib/orderMath');
+const { methodOf, labelFor } = require('../lib/payment');
 
 const STATUSES = ['pending', 'confirmed', 'preparing', 'ready', 'completed', 'cancelled'];
 const ACTIVE = ['pending', 'confirmed', 'preparing', 'ready'];
@@ -39,6 +40,8 @@ const view = (o, items) => ({
   delivery_address: o.delivery_address || null,
   status: o.status,
   payment_status: o.payment_status,
+  payment_method: methodOf(o),
+  payment_method_label: labelFor(methodOf(o)),
   channel: o.channel,
   subtotal: Number(o.subtotal),
   delivery_fee: Number(o.delivery_fee),

@@ -141,7 +141,7 @@ function createAuthRouter({ supabase, auth, createAuthClient = defaultAuthClient
   // The customer's orders at THIS restaurant only.
   router.get('/orders', auth.requireAuth, asyncHandler(async (req, res) => {
     const { data: orders, error } = await supabase.from('bg_orders')
-      .select('id, order_number, order_type, table_label, status, payment_status, total, currency, created_at, bg_order_items(menu_item_id, name_snapshot, quantity, line_total)')
+      .select('id, order_number, order_type, table_label, status, payment_status, payment_method, total, currency, created_at, bg_order_items(menu_item_id, name_snapshot, quantity, line_total)')
       .eq('tenant_id', req.tenant.id)
       .eq('user_id', req.authUser.id)
       .order('created_at', { ascending: false })

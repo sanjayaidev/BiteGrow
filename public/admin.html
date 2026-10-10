@@ -745,7 +745,7 @@ function ordTime(iso) { const d = new Date(iso); return isNaN(d) ? '' : d.toLoca
 function renderOrders(list) {
   const fresh = (o) => O.fresh.has(o.id);
   $('ords').innerHTML = list.length ? list.map((o) => `<div class="ord" data-id="${o.id}">
-    <div class="top"><b>${esc(o.order_number)}</b><span>${fresh(o) ? '<span class="st new">New</span>' : ''}<span class="st ${esc(o.status)}">${esc(ORD_LABEL[o.status] || o.status)}</span><span class="st ${o.payment_status === 'paid' ? 'paid' : ''}">${esc(o.payment_status)}</span></span></div>
+    <div class="top"><b>${esc(o.order_number)}</b><span>${fresh(o) ? '<span class="st new">New</span>' : ''}<span class="st ${esc(o.status)}">${esc(ORD_LABEL[o.status] || o.status)}</span><span class="st ${o.payment_status === 'paid' ? 'paid' : ''}">${esc((o.payment_method_label ? o.payment_method_label + ' · ' : '') + o.payment_status)}</span></span></div>
     <div class="meta">${esc(TYPE_NAME[o.order_type] || o.order_type)}${o.table_label ? ' · table ' + esc(o.table_label) : ''} · ${esc(ordTime(o.created_at))} · ${esc(o.customer_name)}${o.customer_phone ? ' · <a href="tel:' + esc(String(o.customer_phone).replace(/[^\d+]/g, '')) + '">' + esc(o.customer_phone) + '</a>' : ''}${o.ready_at ? ` · <b style="color:var(--gold)">READY BY ${esc(ordTime(o.ready_at))}</b>` : ''}</div>
     ${o.delivery_address ? `<div class="meta">Deliver to: ${esc(o.delivery_address)}</div>` : ''}
     <ul>${o.items.map((i) => `<li>${i.quantity} × ${esc(i.name)}</li>`).join('')}</ul>

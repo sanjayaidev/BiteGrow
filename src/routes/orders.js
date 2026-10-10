@@ -18,6 +18,7 @@ const rateLimit = require('express-rate-limit');
 const { pick } = require('../render');
 const { toCents, fromCents, normalizeLines, fetchAvailableItems } = require('../lib/orderMath');
 const { isOpen, statusAt, scheduleFrom, hasSchedule, windowsFor, localMidnightMs, localNow } = require('../lib/hours');
+const { methodFor, methodOf, labelFor } = require('../lib/payment');
 
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const clean = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
@@ -214,6 +215,7 @@ function createOrdersRouter({ supabase, auth, createLimit = 20, lookupLimit = 60
       delivery_address: orderType === 'delivery' ? address : null,
       status: 'pending',
       payment_status: 'unpaid',
+      payment_method: methodFor(orderType),
       channel: 'web',
       subtotal: fromCents(subtotalCents),
       delivery_fee: fromCents(feeCents),
@@ -221,7 +223,7 @@ function createOrdersRouter({ supabase, auth, createLimit = 20, lookupLimit = 60
       notes: notes || null,
       ready_at: ready.readyAt || null,
       lead_minutes: ready.leadMinutes != null ? ready.leadMinutes : (ready.readyAt ? 15 : null),
-    }).select('id, order_number, order_token, status, payment_status').single();
+    }).select('id, order_number, order_token, status, payment_status, payment_method').single();
     if (oErr) throw oErr;
 
     const { error: iErr } = await supabase.from('bg_order_items').insert(items.map((i) => ({
@@ -257,6 +259,8 @@ function createOrdersRouter({ supabase, auth, createLimit = 20, lookupLimit = 60
       currency: tenant.currency,
       status: order.status,
       payment_status: order.payment_status,
+      payment_method: order.payment_method || methodFor(orderType),
+      payment_method_label: labelFor(order.payment_method || methodFor(orderType)),
       ready_at: ready.readyAt || null,
       whatsapp_url: whatsappUrl(tenant, order, {
         orderType, tableLabel, name, phone, address: orderType === 'delivery' ? address : '', notes,
@@ -300,6 +304,8 @@ function createOrdersRouter({ supabase, auth, createLimit = 20, lookupLimit = 60
       delivery_address: order.delivery_address,
       status: order.status,
       payment_status: order.payment_status,
+      payment_method: methodOf(order),
+      payment_method_label: labelFor(methodOf(order)),
       subtotal: Number(order.subtotal),
       delivery_fee: Number(order.delivery_fee),
       total: Number(order.total),

@@ -557,6 +557,8 @@ function openBasket() {
   const rows = lines.map(([id, q]) => { const i = byId(id); return `<div class="line"><span>${esc(i.name)}<br><small style="color:var(--muted)">${money(i.price)}</small></span><span class="qty"><button data-dec="${id}">−</button> ${q} <button data-add="${id}" data-stay>+</button></span></div>`; }).join('');
   open(`<h3>Your basket</h3>${rows}<div class="total"><span>Total</span><span>${money(cartTotal())}</span></div>${session ? '' : '<p class="muted" style="margin:10px 0 0">Sign in to keep your basket on every device.</p>'}<button class="btn" data-checkout>Checkout</button><button class="btn ghost" data-close>Keep browsing</button>`);
 }
+// How each order type is paid (the server records the same method on the order). There is no online payment.
+const PAY_LABEL = { dine_in: 'Cash', pickup: 'Pay at pickup', delivery: 'Cash on delivery' };
 const readForm = () => ({ name: val('c_name'), phone: val('c_phone'), addr: val('c_addr'), notes: val('c_notes'), table: val('c_table'), ready: val('c_ready') });
 function openCheckout(prev = {}) {
   if (!cartLines().length) return openBasket();
@@ -572,6 +574,7 @@ function openCheckout(prev = {}) {
     ${type === 'delivery' ? field('c_addr', 'Delivery address', { value: prev.addr != null ? prev.addr : p.address, attrs: 'autocomplete="street-address" maxlength="300"' }) : ''}
     ${readyByHtml(type, prev)}
     ${field('c_notes', 'Notes (optional)', { value: prev.notes, attrs: 'maxlength="300"' })}
+    <p class="muted" style="margin:12px 0 0">Payment: <b>${esc(PAY_LABEL[type] || 'Pay at the restaurant')}</b></p>
     <div class="line"><span>Subtotal</span><span>${money(sub)}</span></div>${fee ? `<div class="line"><span>Delivery</span><span>${money(fee)}</span></div>` : ''}
     <div class="total"><span>Total</span><span>${money(sub + fee)}</span></div>${MSG}
     <button class="btn" data-act="place">Place order</button><button class="btn ghost" data-act="basket">Back to basket</button>`);
@@ -615,7 +618,7 @@ async function placeOrder() {
   store.set('last', { number: o.order_number, token: o.order_token });   // lets a guest come back to this order's status
   track('Purchase', { ...pixelLines(lines), value: Number(o.total), currency: o.currency || CFG.currencyCode });
   const wa = o.whatsapp_url && /^https:\/\/wa\.me\//.test(o.whatsapp_url) ? o.whatsapp_url : '';
-  open(`<h3>Order placed</h3><p class="muted">Your order number is <b>${esc(o.order_number)}</b>. Total ${money(o.total)}${o.payment_status === 'unpaid' ? ', to pay at the restaurant' : ''}.</p>
+  open(`<h3>Order placed</h3><p class="muted">Your order number is <b>${esc(o.order_number)}</b>. Total ${money(o.total)}${o.payment_status === 'unpaid' ? ' · pay by <b>' + esc((o.payment_method_label || PAY_LABEL[type] || 'cash').toLowerCase()) + '</b>' : ''}.</p>
     ${wa ? `<p class="muted">Tap below to also send the details to ${esc(CFG.brand || 'the restaurant')} on WhatsApp.</p><a class="btn wa" href="${esc(wa)}" target="_blank" rel="noopener">Send on WhatsApp</a>` : ''}
     ${MSG}<button class="btn" data-act="track">Track my order</button>${session ? '<button class="btn ghost" data-act="orders">My orders</button>' : ''}<button class="btn ghost" data-act="done">Done</button>`);
 }
@@ -657,7 +660,7 @@ function openOrders(orders) {
     const when = new Date(o.created_at).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
     const kind = (TYPE_LABEL[o.order_type] || o.order_type) + (o.table_label ? ' · table ' + o.table_label : '');
     const what = (o.bg_order_items || []).map(i => i.quantity + ' × ' + i.name_snapshot).join(', ');
-    const status = (STATUS_LABEL[o.status] || o.status) + (o.payment_status === 'paid' ? ' · Paid' : '');
+    const status = (STATUS_LABEL[o.status] || o.status) + (o.payment_status === 'paid' ? ' · Paid' : o.payment_status === 'refunded' ? ' · Refunded' : '');
     const live = !['completed', 'cancelled'].includes(o.status);
     return `<div class="line"><span><b>${esc(o.order_number)}</b><br><small style="color:var(--muted)">${esc(when)} · ${esc(kind)}</small>${what ? `<br><small style="color:var(--muted)">${esc(what)}</small>` : ''}</span><span style="text-align:right">${money(o.total)}<br><small style="color:var(--muted)">${esc(status)}</small>${live ? `<br><button class="link" data-trk="${esc(o.order_number)}">Track</button>` : ''}<br><button class="link" data-again="${esc(o.order_number)}">Order again</button></span></div>`;
   }).join('');
@@ -677,7 +680,8 @@ function trackHtml(o) {
     : `<ol class="trk">${TRACK_STEPS.map((s, i) => `<li class="${i < at ? 'done' : i === at ? 'now' : ''}">${esc(STATUS_LABEL[s])}</li>`).join('')}</ol>`;
   const where = (TYPE_LABEL[o.order_type] || o.order_type) + (o.table_label ? ' · table ' + o.table_label : '');
   const rows = (o.items || []).map(i => `<div class="line"><span>${i.quantity} × ${esc(i.name)}</span><span>${money(i.line_total)}</span></div>`).join('');
-  return `${steps}<p class="muted" style="margin:10px 0 0">${esc(where)}${FINISHED.includes(o.status) ? '' : ' · this page updates by itself'}</p>${rows}<div class="total"><span>Total</span><span>${money(o.total)}</span></div>`;
+  const pay = o.payment_status === 'paid' ? 'Paid' : o.payment_status === 'refunded' ? 'Refunded' : (o.payment_method_label || 'Pay at the restaurant');
+  return `${steps}<p class="muted" style="margin:10px 0 0">${esc(where)}${FINISHED.includes(o.status) ? '' : ' · this page updates by itself'}</p>${rows}<div class="total"><span>Total</span><span>${money(o.total)}</span></div><p class="muted" style="margin:6px 0 0">Payment: ${esc(pay)}</p>`;
 }
 async function openTrack(number, token) {
   const o = await fetchOrder(number, token);          // an error here is shown by the button that asked

@@ -53,6 +53,22 @@ The restaurant is found from the hostname:
 - With `BASE_DOMAIN` set, `<slug>.<BASE_DOMAIN>` opens that restaurant (e.g. `redhouse.bitegrow.app`). Custom domains can be listed in `bg_tenant_domains`.
 - Otherwise `DEFAULT_TENANT` is used. Outside production you can also add `?tenant=<slug>` to any URL to try another restaurant.
 
+## Payments
+
+There is no online payment gateway. Each order records how it is paid from its type: **dine-in = Cash**, **pickup = Pay at pickup**, **delivery = Cash on delivery (COD)**. The customer sees this at checkout, in the order confirmation and when tracking the order, and staff see it on every order in the admin.
+
+Orders start as `unpaid`. Staff tap **Mark paid** in the admin order desk (and **Mark refunded** if needed).
+
+To let a separate payment service do that instead, set `PAYMENT_WEBHOOK_SECRET` (at least 16 characters) and have that service send a signed request:
+
+```
+POST https://<your-domain>/webhooks/payments
+X-BiteGrow-Signature: sha256=<hex HMAC-SHA256 of the exact body, keyed with PAYMENT_WEBHOOK_SECRET>
+{ "tenant": "redhouse", "order_number": "RH-261010-0001", "payment_status": "paid" }
+```
+
+`payment_status` is `paid` or `refunded`. The same rules as the order desk apply (unpaid → paid → refunded; a cancelled order cannot be paid), and sending the same request twice is harmless. With no secret set, the endpoint is switched off.
+
 ## Platform admin (all restaurants)
 
 Set `PLATFORM_ADMIN_KEY` in the environment (at least 12 characters; leave it empty to switch the page off) and open `/platform` on any hostname of your deployment. Sign in with that key to:
